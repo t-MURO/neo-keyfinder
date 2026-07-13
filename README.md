@@ -1,18 +1,28 @@
 # KeyFinder
 
-This is the modern, cross-platform rebuild of KeyFinder. It is intentionally
-isolated from the read-only Qt 5 reference application in `../is_KeyFinder/`.
+KeyFinder is a modern, cross-platform rebuild of the original Qt application.
+It is intentionally isolated from the read-only reference checkout in
+`../is_KeyFinder/`.
 
-The current code completes the first implementation milestone only:
+The Phase 1 core workflow is implemented:
 
-- React, TypeScript, and Vite render the desktop interface.
-- Tauri exposes one typed `get_native_health` command to the webview.
-- A persistent C++ sidecar answers versioned JSON-Lines requests.
-- The webview has no shell or unrestricted filesystem capability.
-- Native, Rust, frontend, and full IPC-path smoke tests protect the boundary.
+- Recursive file/folder intake, drag and drop, canonical deduplication, symlink
+  cycle protection, extension filtering, and per-file errors.
+- Streaming FFmpeg decode into pinned libkeyfinder 2.2.8, with bounded parallel
+  jobs, progress, duration limits, cancellation, and retryable rows.
+- TagLib metadata reads and independent field writes for the supplied MP3,
+  FLAC, AAC, WMA, WAV, and AIFF corpus. An in-process FFmpeg remux fallback
+  covers the supplied ALAC fixture.
+- Legacy output rules, notation modes, skip behavior, automatic writes, manual
+  writes, and collision-safe filename changes.
+- A virtualized, sortable React batch table with multi-selection, copy, remove,
+  clear, analysis/write controls, persisted settings, and window sizing.
+- A restricted Tauri bridge to one persistent, versioned JSON-Lines sidecar.
+  The webview receives no shell or unrestricted filesystem permission.
+- One-time compatible legacy QSettings migration on macOS, Windows, and Linux.
 
-Audio decoding, metadata, key detection, playlists, and file mutations are not
-implemented yet. They stay out of scope until this foundation is stable.
+Phase 2 playlist/library integrations, multiple windows, the CLI, About/update
+flow, and localization infrastructure remain intentionally separate.
 
 ## Quick start
 
@@ -24,21 +34,20 @@ npm test
 npm run dev
 ```
 
-`npm run dev` compiles the C++ engine, copies it to Tauri's target-triple
-sidecar location, starts Vite, and launches the desktop application.
-
 ## Project layout
 
 ```text
 neo-keyfinder/
-├── app/          React and TypeScript frontend
-├── native/       C++ domain and JSON-Lines protocol libraries
-├── scripts/      Cross-platform sidecar build preparation
-├── src-tauri/    Restricted Rust bridge and Tauri application
-└── tests/        Reserved for later end-to-end fixtures
+├── app/          React and TypeScript desktop interface
+├── native/       C++ analysis, metadata, jobs, and protocol
+├── scripts/      Sidecar and universal-binary build preparation
+├── src-tauri/    Restricted Rust bridge, settings, and Tauri shell
+├── vcpkg/        Pinned libkeyfinder 2.2.8 release overlay
+└── .github/      Cross-platform test and installer builds
 ```
 
 ## License
 
 The replacement is licensed under GPL-3.0-or-later. Dependency licenses remain
-the property of their respective authors.
+the property of their respective authors and are included by their respective
+package managers/bundlers.

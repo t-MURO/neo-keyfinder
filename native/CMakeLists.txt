@@ -26,16 +26,54 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(TAGLIB REQUIRED IMPORTED_TARGET taglib>=2.0)
+pkg_check_modules(KEYFINDER REQUIRED IMPORTED_TARGET libkeyfinder=2.2.8)
+pkg_check_modules(
+  FFMPEG
+  REQUIRED
+  IMPORTED_TARGET
+  libavformat
+  libavcodec
+  libavutil
+  libswresample
+)
+
+# CMake's FindPkgConfig can duplicate the value half of repeated macOS
+# `-framework Name` pairs as standalone link options. The framework libraries
+# themselves remain correctly represented in INTERFACE_LINK_LIBRARIES.
+if(APPLE)
+  set_property(TARGET PkgConfig::FFMPEG PROPERTY INTERFACE_LINK_OPTIONS "")
+endif()
+
 add_library(keyfinder_domain STATIC
+  src/analyzer.cpp
+  src/file_scanner.cpp
   src/health.cpp
+  src/job_manager.cpp
+  src/metadata.cpp
+  src/model.cpp
+  src/output_rules.cpp
+  src/settings.cpp
+  src/writer.cpp
 )
 target_include_directories(keyfinder_domain PUBLIC include)
 target_compile_definitions(
   keyfinder_domain
   PUBLIC NKF_ENGINE_VERSION="${PROJECT_VERSION}"
 )
+target_link_libraries(
+  keyfinder_domain
+  PUBLIC
+    nlohmann_json::nlohmann_json
+  PRIVATE
+    PkgConfig::FFMPEG
+    PkgConfig::KEYFINDER
+    PkgConfig::TAGLIB
+)
 
 add_library(keyfinder_protocol STATIC
+  src/engine.cpp
   src/protocol.cpp
 )
 target_include_directories(keyfinder_protocol PUBLIC include)
@@ -69,6 +107,34 @@ if(NKF_BUILD_TESTS)
   add_executable(domain-tests tests/health_tests.cpp)
   target_link_libraries(domain-tests PRIVATE keyfinder_domain)
   add_test(NAME domain-tests COMMAND domain-tests)
+
+  add_executable(output-rule-tests tests/output_rule_tests.cpp)
+  target_link_libraries(output-rule-tests PRIVATE keyfinder_domain)
+  add_test(NAME output-rule-tests COMMAND output-rule-tests)
+
+  add_executable(metadata-tests tests/metadata_tests.cpp)
+  target_link_libraries(metadata-tests PRIVATE keyfinder_domain)
+  target_compile_definitions(
+    metadata-tests
+    PRIVATE NKF_LEGACY_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../is_KeyFinder/test-resources"
+  )
+  add_test(NAME metadata-tests COMMAND metadata-tests)
+
+  add_executable(analyzer-tests tests/analyzer_tests.cpp)
+  target_link_libraries(analyzer-tests PRIVATE keyfinder_domain)
+  target_compile_definitions(
+    analyzer-tests
+    PRIVATE NKF_LEGACY_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../is_KeyFinder/test-resources"
+  )
+  add_test(NAME analyzer-tests COMMAND analyzer-tests)
+
+  add_executable(filesystem-tests tests/filesystem_tests.cpp)
+  target_link_libraries(filesystem-tests PRIVATE keyfinder_domain)
+  target_compile_definitions(
+    filesystem-tests
+    PRIVATE NKF_LEGACY_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../is_KeyFinder/test-resources"
+  )
+  add_test(NAME filesystem-tests COMMAND filesystem-tests)
 endif()
 
 install(TARGETS keyfinder-native RUNTIME DESTINATION bin)

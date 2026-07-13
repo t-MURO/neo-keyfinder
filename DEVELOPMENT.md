@@ -8,6 +8,8 @@ All platforms need:
 - Rust stable with Cargo.
 - CMake 3.24 or newer.
 - A C++20 compiler.
+- FFmpeg development libraries, TagLib 2, libkeyfinder 2.2.8, and FFTW for
+  ordinary local development, or vcpkg for pinned distributable builds.
 
 The versions committed in `package-lock.json` and `src-tauri/Cargo.lock` are the
 reproducible application dependency set. The native JSON dependency is pinned
@@ -19,7 +21,7 @@ Install Xcode Command Line Tools and CMake:
 
 ```sh
 xcode-select --install
-brew install cmake
+brew install cmake ffmpeg taglib libkeyfinder fftw
 ```
 
 Tauri 2 supports macOS 10.15 and newer. A full Xcode installation is needed
@@ -33,6 +35,9 @@ Install:
 2. Visual Studio 2022 Build Tools with **Desktop development with C++**.
 3. The Evergreen WebView2 Runtime if it is not already present.
 4. CMake, available from Visual Studio Installer or `winget install Kitware.CMake`.
+5. A local clone of Microsoft vcpkg. Windows native dependencies are built
+   statically; no FFmpeg, TagLib, FFTW, or libkeyfinder installation is required
+   on the machine that runs the resulting application.
 
 Run commands below from a Developer PowerShell or a terminal where CMake and
 the MSVC compiler are on `PATH`.
@@ -44,11 +49,13 @@ Install the Tauri desktop libraries plus the build toolchain:
 ```sh
 sudo apt update
 sudo apt install build-essential cmake curl file libappindicator3-dev \
-  librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev wget
+  librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev wget pkg-config
 ```
 
-Other distributions need equivalent WebKitGTK 4.1, OpenSSL, app indicator,
-SVG, and C/C++ development packages.
+Use the pinned vcpkg setup described under local builds for the native audio
+libraries; distro libkeyfinder packages are often older than the required
+2.2.8. Other distributions need equivalent WebKitGTK 4.1, OpenSSL, app
+indicator, SVG, and C/C++ development packages.
 
 ## Set up the project
 
@@ -75,8 +82,9 @@ The native build script performs four deterministic steps:
    `src-tauri/binaries/keyfinder-native-<target-triple>` for Tauri.
 
 The Rust backend starts that process once and keeps it alive. Each typed Tauri
-command sends one correlated JSON line and waits up to five seconds for its
-response.
+command sends one correlated JSON line. The continuous reader routes direct
+responses by request ID while forwarding ordered analysis events to the
+frontend.
 
 ## Tests and checks
 
@@ -112,11 +120,33 @@ npm run build:debug
 Build the platform installer or bundle:
 
 ```sh
+export VCPKG_ROOT=/absolute/path/to/vcpkg
 npm run build
 ```
 
-The resulting artifacts are below `src-tauri/target/`. Signing and notarization
-are intentionally optional until release credentials are supplied.
+Release builds deliberately require `VCPKG_ROOT`. The pinned manifest builds
+FFmpeg 8.1.2, TagLib 2.3, FFTW 3.3.11, and the libkeyfinder 2.2.8 overlay as
+static sidecar dependencies. On Windows, use `VCPKG_TARGET_TRIPLET=x64-windows-static`;
+the NSIS installer contains the Tauri application and its native sidecar and
+does not require Python, FFmpeg, TagLib, libkeyfinder, CMake, or vcpkg on the
+user's computer. Windows itself supplies WebView2 on current supported releases,
+and the installer can bootstrap it where needed.
+
+Build the universal macOS DMG with:
+
+```sh
+export VCPKG_ROOT=/absolute/path/to/vcpkg
+npm run build:macos-universal -- --bundles dmg
+```
+
+The resulting artifacts are below `src-tauri/target/`. CI produces a universal
+macOS DMG, a Windows x64 NSIS installer, and Linux x64 AppImage and DEB files.
+
+Signing is optional. The macOS job is ready for Tauri's standard
+`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
+`APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID` secrets. A Windows
+Authenticode `signCommand` can be supplied in a release-only Tauri config when
+a certificate service is selected; unsigned CI artifacts remain buildable.
 
 ## JSON-Lines protocol v1
 
@@ -138,5 +168,9 @@ Error responses contain `error` and never `result`:
 {"version":1,"requestId":"health-1","error":{"code":"UNKNOWN_METHOD","message":"Unknown protocol method: example"}}
 ```
 
-Current error codes are `INVALID_JSON`, `INVALID_REQUEST`, `INVALID_PARAMS`,
-`UNSUPPORTED_VERSION`, `UNKNOWN_METHOD`, and `INTERNAL_ERROR`.
+Protocol operations are `health`, `expandFiles`, `startAnalysis`, `cancelJob`,
+and `writeTracks`. Jobs emit ordered `trackUpdated`, `trackProgress`,
+`jobProgress`, and `jobFinished` events. Protocol-level error codes include
+`INVALID_JSON`, `INVALID_REQUEST`, `INVALID_PARAMS`, `UNSUPPORTED_VERSION`,
+`UNKNOWN_METHOD`, and `INTERNAL_ERROR`; track-level errors carry a code, stage,
+and user-facing message without terminating unrelated work.

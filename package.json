@@ -9,9 +9,10 @@
   "scripts": {
     "dev": "npm run native:build && tauri dev",
     "build": "npm run native:build -- --release && tauri build",
+    "build:macos-universal": "node scripts/build-universal-sidecar.mjs && tauri build --target universal-apple-darwin",
     "build:debug": "npm run native:build && tauri build --debug --no-bundle",
     "native:build": "node scripts/build-native.mjs",
-    "native:test": "npm run native:build && ctest --test-dir native/build --output-on-failure -C Debug",
+    "native:test": "npm run native:build && node scripts/test-native.mjs",
     "frontend:build": "npm --workspace app run build",
     "frontend:test": "npm --workspace app run test",
     "rust:check": "cargo check --manifest-path src-tauri/Cargo.toml --all-targets",

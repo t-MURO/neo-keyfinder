@@ -6,6 +6,8 @@ app/*.tsbuildinfo
 app/vite.config.js
 app/vite.config.d.ts
 native/build/
+native/build-*/
+vcpkg_installed/
 src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
 src-tauri/gen/
