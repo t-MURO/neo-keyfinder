@@ -1,0 +1,24 @@
+{
+  "name": "neo-keyfinder",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "workspaces": [
+    "app"
+  ],
+  "scripts": {
+    "dev": "npm run native:build && tauri dev",
+    "build": "npm run native:build -- --release && tauri build",
+    "build:debug": "npm run native:build && tauri build --debug --no-bundle",
+    "native:build": "node scripts/build-native.mjs",
+    "native:test": "npm run native:build && ctest --test-dir native/build --output-on-failure -C Debug",
+    "frontend:build": "npm --workspace app run build",
+    "frontend:test": "npm --workspace app run test",
+    "rust:check": "cargo check --manifest-path src-tauri/Cargo.toml --all-targets",
+    "rust:test": "npm run native:build && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test": "npm run frontend:test && npm run native:test && npm run rust:test"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  }
+}

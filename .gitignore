@@ -1,0 +1,15 @@
+.DS_Store
+.idea/
+node_modules/
+app/dist/
+app/*.tsbuildinfo
+app/vite.config.js
+app/vite.config.d.ts
+native/build/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+src-tauri/gen/
+src-tauri/target/
+target/
+coverage/
+*.log

@@ -1,0 +1,24 @@
+[package]
+name = "neo-keyfinder"
+version = "0.1.0"
+description = "A modern cross-platform KeyFinder application"
+authors = ["KeyFinder contributors"]
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "neo_keyfinder_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [] }
+
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+tauri = { version = "=2.11.5", features = [] }
+tauri-plugin-shell = "=2.3.5"
+tokio = { version = "=1.52.3", features = ["sync", "time"] }
+
+[dev-dependencies]
+tauri = { version = "=2.11.5", features = ["test"] }

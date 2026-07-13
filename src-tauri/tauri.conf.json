@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "KeyFinder",
+  "version": "0.1.0",
+  "identifier": "app.keyfinder.neo",
+  "build": {
+    "beforeDevCommand": "npm --prefix app run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm --prefix app run build",
+    "frontendDist": "../app/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "KeyFinder",
+        "width": 1120,
+        "height": 760,
+        "minWidth": 720,
+        "minHeight": 560,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": [
+      "binaries/keyfinder-native"
+    ],
+    "category": "Music",
+    "shortDescription": "Estimate musical keys for harmonic mixing",
+    "longDescription": "KeyFinder estimates the musical key of audio tracks to support harmonic mixing.",
+    "copyright": "GPL-3.0-or-later"
+  }
+}
