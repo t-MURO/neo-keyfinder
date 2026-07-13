@@ -112,11 +112,19 @@ AnalysisResult analyze_file(const std::filesystem::path& path,
 
   KeyFinder::Workspace workspace;
   KeyFinder::KeyFinder analyzer;
+  std::uint64_t decoded_sample_count = 0;
 
   auto consume_frames = [&]() {
     while (true) {
       const int receive = avcodec_receive_frame(codec_context.get(), frame.get());
       if (receive == AVERROR(EAGAIN) || receive == AVERROR_EOF) return;
+      // FFmpeg can recover from an isolated damaged frame when subsequent packets
+      // are valid. Treating AVERROR_INVALIDDATA as fatal rejects otherwise playable
+      // tracks (notably FLAC files with a single corrupt frame).
+      if (receive == AVERROR_INVALIDDATA) {
+        av_frame_unref(frame.get());
+        return;
+      }
       require_ffmpeg(receive, "Could not decode an audio frame");
       if (is_cancelled()) throw std::runtime_error("ANALYSIS_CANCELLED");
 
@@ -133,6 +141,7 @@ AnalysisResult analyze_file(const std::filesystem::path& path,
       require_ffmpeg(converted, "Could not normalize decoded audio");
       samples.resize(static_cast<std::size_t>(converted) *
                      static_cast<std::size_t>(channels));
+      decoded_sample_count += samples.size();
 
       KeyFinder::AudioData audio;
       audio.setFrameRate(static_cast<unsigned int>(codec_context->sample_rate));
@@ -146,12 +155,35 @@ AnalysisResult analyze_file(const std::filesystem::path& path,
     }
   };
 
-  while (av_read_frame(format.get(), packet.get()) >= 0) {
+  auto submit_packet = [&](const AVPacket* input, const std::string& action) {
+    while (true) {
+      const int submitted = avcodec_send_packet(codec_context.get(), input);
+      if (submitted >= 0 || submitted == AVERROR_EOF) return true;
+      if (submitted == AVERROR(EAGAIN)) {
+        consume_frames();
+        continue;
+      }
+      if (submitted == AVERROR_INVALIDDATA) return false;
+      require_ffmpeg(submitted, action);
+    }
+  };
+
+  int consecutive_read_errors = 0;
+  while (true) {
+    const int read = av_read_frame(format.get(), packet.get());
+    if (read == AVERROR_EOF) break;
+    if (read == AVERROR_INVALIDDATA && ++consecutive_read_errors <= 32) {
+      av_packet_unref(packet.get());
+      continue;
+    }
+    require_ffmpeg(read, "Could not read an audio packet");
+    consecutive_read_errors = 0;
+
     if (is_cancelled()) throw std::runtime_error("ANALYSIS_CANCELLED");
     if (packet->stream_index == stream_index) {
-      require_ffmpeg(avcodec_send_packet(codec_context.get(), packet.get()),
-                     "Could not submit an audio packet");
-      consume_frames();
+      if (submit_packet(packet.get(), "Could not submit an audio packet")) {
+        consume_frames();
+      }
       if (packet->pts != AV_NOPTS_VALUE && stream->duration > 0) {
         progress(std::clamp(static_cast<double>(packet->pts) /
                                 static_cast<double>(stream->duration),
@@ -161,10 +193,13 @@ AnalysisResult analyze_file(const std::filesystem::path& path,
     av_packet_unref(packet.get());
   }
 
-  require_ffmpeg(avcodec_send_packet(codec_context.get(), nullptr),
-                 "Could not flush the audio decoder");
-  consume_frames();
+  if (submit_packet(nullptr, "Could not flush the audio decoder")) {
+    consume_frames();
+  }
   if (is_cancelled()) throw std::runtime_error("ANALYSIS_CANCELLED");
+  if (decoded_sample_count == 0) {
+    throw std::runtime_error("No decodable audio frames were found");
+  }
 
   analyzer.finalChromagram(workspace);
   progress(1.0);

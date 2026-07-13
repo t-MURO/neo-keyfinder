@@ -27,7 +27,8 @@ class JobManager {
   JobManager(const JobManager&) = delete;
   JobManager& operator=(const JobManager&) = delete;
 
-  [[nodiscard]] std::string start(std::vector<Track> tracks, Settings settings);
+  [[nodiscard]] std::string start(std::vector<Track> tracks, Settings settings,
+                                  std::string owner = {});
   [[nodiscard]] bool cancel(const std::string& job_id);
 
  private:

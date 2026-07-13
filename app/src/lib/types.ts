@@ -32,7 +32,7 @@ export interface Track {
 }
 
 export type OutputMode = "none" | "prepend" | "append" | "overwrite";
-export type NotationMode = "standard" | "custom" | "combined";
+export type NotationMode = "standard" | "custom" | "combined" | "djCombined";
 
 export interface Settings {
   schemaVersion: number;
@@ -54,6 +54,9 @@ export interface Settings {
   delimiter: string;
   notation: NotationMode;
   customCodes: string[];
+  features: {
+    playlistsEnabled: boolean;
+  };
   libraryPaths: {
     itunes: string;
     traktor: string;
@@ -61,6 +64,7 @@ export interface Settings {
   };
   presentation: {
     compactRows: boolean;
+    libraryOpen: boolean;
     windowWidth: number;
     windowHeight: number;
   };
@@ -73,11 +77,42 @@ export interface ScanWarning {
   message: string;
 }
 
+export type PlaylistSource = "itunes" | "traktor" | "serato" | "m3u";
+
+export interface Playlist {
+  id: string;
+  name: string;
+  source: PlaylistSource;
+  origin: string;
+  tracks: string[];
+  readOnly: true;
+}
+
+export interface PlaylistWarning {
+  source: string;
+  path: string;
+  code: string;
+  message: string;
+}
+
+export interface PlaylistResult {
+  playlists: Playlist[];
+  warnings: PlaylistWarning[];
+}
+
+export interface AppInfo {
+  name: string;
+  version: string;
+  projectUrl: string;
+  releaseApiUrl: string;
+  releaseMetadataUrl: string;
+}
+
 export interface NativeEvent {
   version: number;
   event: "trackUpdated" | "trackProgress" | "jobProgress" | "jobFinished";
   jobId: string;
+  owner?: string;
   sequence: number;
   payload: Record<string, unknown>;
 }
-

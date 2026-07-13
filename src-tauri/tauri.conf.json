@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "KeyFinder",
+  "productName": "Neo KeyFinder",
   "version": "0.1.0",
   "identifier": "app.keyfinder.neo",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "KeyFinder",
+        "title": "Neo KeyFinder",
         "width": 1120,
         "height": 760,
         "minWidth": 720,
@@ -24,18 +24,19 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self'"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.github.com; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self'"
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
     "externalBin": [
-      "binaries/keyfinder-native"
+      "binaries/keyfinder-native",
+      "binaries/keyfinder"
     ],
     "category": "Music",
     "shortDescription": "Estimate musical keys for harmonic mixing",
-    "longDescription": "KeyFinder estimates the musical key of audio tracks to support harmonic mixing.",
+    "longDescription": "Neo KeyFinder estimates the musical key of audio tracks to support harmonic mixing.",
     "copyright": "GPL-3.0-or-later"
   }
 }

@@ -1,10 +1,10 @@
-# KeyFinder
+# Neo KeyFinder
 
-KeyFinder is a modern, cross-platform rebuild of the original Qt application.
+Neo KeyFinder is a modern, cross-platform rebuild of the original Qt application.
 It is intentionally isolated from the read-only reference checkout in
 `../is_KeyFinder/`.
 
-The Phase 1 core workflow is implemented:
+The Phase 1 core workflow and Phase 2 integrations are implemented:
 
 - Recursive file/folder intake, drag and drop, canonical deduplication, symlink
   cycle protection, extension filtering, and per-file errors.
@@ -20,9 +20,13 @@ The Phase 1 core workflow is implemented:
 - A restricted Tauri bridge to one persistent, versioned JSON-Lines sidecar.
   The webview receives no shell or unrestricted filesystem permission.
 - One-time compatible legacy QSettings migration on macOS, Windows, and Linux.
-
-Phase 2 playlist/library integrations, multiple windows, the CLI, About/update
-flow, and localization infrastructure remain intentionally separate.
+- Read-only iTunes XML, Traktor NML, and Serato crate browsing, plus standalone
+  M3U/M3U8 and iTunes XML imports with replacement warnings.
+- Independent batch windows with platform-native File, Edit, Window, and Help
+  menus. Analysis events are routed only to the window that owns each job.
+- A bundled native `keyfinder` CLI, an in-app GPL/dependency About view, a
+  GitHub published-release check, and typed translation infrastructure seeded
+  with the English catalog.
 
 ## Quick start
 
@@ -34,12 +38,25 @@ npm test
 npm run dev
 ```
 
+## Command line
+
+The native build also produces `keyfinder` (`keyfinder.exe` on Windows):
+
+```sh
+keyfinder -f "/path/to/track.flac"
+keyfinder --file "/path/to/track.flac" --write
+```
+
+`--write` (or `-w`) prepends the detected key to the comment tag using the
+legacy default. Exit code `0` means success, `1` means invalid input or an
+analysis failure, and `2` means the key was detected but writing failed.
+
 ## Project layout
 
 ```text
 neo-keyfinder/
 ├── app/          React and TypeScript desktop interface
-├── native/       C++ analysis, metadata, jobs, and protocol
+├── native/       C++ analysis, playlists, CLI, metadata, jobs, and protocol
 ├── scripts/      Sidecar and universal-binary build preparation
 ├── src-tauri/    Restricted Rust bridge, settings, and Tauri shell
 ├── vcpkg/        Pinned libkeyfinder 2.2.8 release overlay

@@ -10,7 +10,7 @@
 namespace keyfinder::domain {
 
 enum class OutputMode { none, prepend, append, overwrite };
-enum class NotationMode { standard, custom, combined };
+enum class NotationMode { standard, custom, combined, dj_combined };
 
 struct OutputSettings {
   OutputMode title{OutputMode::none};

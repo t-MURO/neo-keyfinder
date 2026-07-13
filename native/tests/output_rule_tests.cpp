@@ -69,5 +69,19 @@ int main() {
              "XXX and a bunch of other data A",
          "combined notation joins custom and standard codes");
 
+  settings.notation = keyfinder::domain::NotationMode::dj_combined;
+  expect(keyfinder::domain::to_string(settings.notation) == "djCombined",
+         "DJ notation serializes with its settings identifier");
+  expect(keyfinder::domain::notation_mode_from_string("djCombined") ==
+             keyfinder::domain::NotationMode::dj_combined,
+         "DJ notation settings identifier is parsed");
+  expect(keyfinder::domain::key_code(23, settings) == "1A - Abm",
+         "DJ notation joins its code and standard key with the separator");
+  settings.delimiter = " / ";
+  expect(keyfinder::domain::key_code(23, settings) == "1A / Abm",
+         "DJ notation respects a customized separator");
+  expect(keyfinder::domain::key_code(24, settings) == "...",
+         "silence does not receive a DJ notation code");
+
   return 0;
 }

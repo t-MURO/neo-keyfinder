@@ -3,8 +3,16 @@ mod settings;
 
 pub use native_bridge::{NativeBridge, NativeHealth};
 use serde_json::{Value, json};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tauri::{LogicalSize, Manager, WindowEvent};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::{Emitter, LogicalSize, Manager, WebviewUrl, WindowEvent};
+use tauri_plugin_opener::OpenerExt;
+
+static NEXT_WINDOW_ID: AtomicU64 = AtomicU64::new(1);
+const PROJECT_URL: &str = "https://github.com/t-MURO/neo-keyfinder";
+
+struct DesktopApp(tauri::AppHandle);
 
 #[tauri::command]
 async fn get_native_health(engine: tauri::State<'_, NativeBridge>) -> Result<NativeHealth, String> {
@@ -30,12 +38,13 @@ async fn expand_files(
 async fn start_analysis(
     tracks: Value,
     settings: Value,
+    owner: String,
     engine: tauri::State<'_, NativeBridge>,
 ) -> Result<Value, String> {
     engine
         .call(
             "startAnalysis",
-            json!({"tracks": tracks, "settings": settings}),
+            json!({"tracks": tracks, "settings": settings, "owner": owner}),
             Duration::from_secs(10),
         )
         .await
@@ -65,6 +74,34 @@ async fn write_tracks(
         .call(
             "writeTracks",
             json!({"tracks": tracks, "settings": settings}),
+            Duration::from_secs(120),
+        )
+        .await
+}
+
+#[tauri::command]
+async fn discover_libraries(
+    settings: Value,
+    engine: tauri::State<'_, NativeBridge>,
+) -> Result<Value, String> {
+    engine
+        .call(
+            "discoverLibraries",
+            json!({"settings": settings}),
+            Duration::from_secs(120),
+        )
+        .await
+}
+
+#[tauri::command]
+async fn load_playlist(
+    path: String,
+    engine: tauri::State<'_, NativeBridge>,
+) -> Result<Value, String> {
+    engine
+        .call(
+            "loadPlaylist",
+            json!({"path": path}),
             Duration::from_secs(120),
         )
         .await
@@ -109,6 +146,101 @@ async fn pick_audio_folder() -> Result<Option<String>, String> {
         .map(|folder| folder.path().to_string_lossy().into_owned()))
 }
 
+#[tauri::command]
+async fn pick_playlist_file() -> Result<Option<String>, String> {
+    Ok(rfd::AsyncFileDialog::new()
+        .set_title("Import a playlist")
+        .add_filter("Supported playlists", &["m3u", "m3u8", "xml"])
+        .pick_file()
+        .await
+        .map(|file| file.path().to_string_lossy().into_owned()))
+}
+
+fn create_batch_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<String, String> {
+    let label = format!("batch-{}", NEXT_WINDOW_ID.fetch_add(1, Ordering::Relaxed));
+    tauri::WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
+        .title("Neo KeyFinder")
+        .inner_size(1120.0, 760.0)
+        .min_inner_size(720.0, 560.0)
+        .center()
+        .build()
+        .map_err(|error| format!("Could not open a batch window: {error}"))?;
+    Ok(label)
+}
+
+#[tauri::command]
+async fn new_batch_window(app: tauri::State<'_, DesktopApp>) -> Result<String, String> {
+    create_batch_window(&app.0)
+}
+
+#[tauri::command]
+fn get_app_info() -> Value {
+    json!({
+        "name": "Neo KeyFinder",
+        "version": env!("CARGO_PKG_VERSION"),
+        "projectUrl": PROJECT_URL,
+        "releaseApiUrl": format!("{PROJECT_URL}/releases/latest"),
+        "releaseMetadataUrl": "https://api.github.com/repos/t-MURO/neo-keyfinder/releases/latest"
+    })
+}
+
+#[tauri::command]
+fn open_project_url(app: tauri::State<'_, DesktopApp>, url: String) -> Result<(), String> {
+    if url != PROJECT_URL && !url.starts_with(&format!("{PROJECT_URL}/")) {
+        return Err("Only Neo KeyFinder project links can be opened".into());
+    }
+    app.0
+        .opener()
+        .open_url(url, None::<&str>)
+        .map_err(|error| format!("Could not open the link: {error}"))
+}
+
+fn emit_menu_action<R: tauri::Runtime>(app: &tauri::AppHandle<R>, action: &str) {
+    if let Some((label, _)) = app
+        .webview_windows()
+        .into_iter()
+        .find(|(_, window)| window.is_focused().unwrap_or(false))
+    {
+        let _ = app.emit_to(label, "menu-action", action);
+    }
+}
+
+fn install_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
+    let settings = MenuItemBuilder::with_id("settings", "Settings…")
+        .accelerator("CmdOrCtrl+,")
+        .build(app)?;
+    let file = SubmenuBuilder::new(app, "File")
+        .text("new-batch", "New Batch Window")
+        .separator()
+        .item(&settings)
+        .separator()
+        .close_window()
+        .quit()
+        .build()?;
+    let edit = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+    let window = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize()
+        .build()?;
+    let help = SubmenuBuilder::new(app, "Help")
+        .text("check-updates", "Check for Updates…")
+        .text("about-keyfinder", "About Neo KeyFinder")
+        .build()?;
+    let menu = MenuBuilder::new(app)
+        .items(&[&file, &edit, &window, &help])
+        .build()?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
 pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder.invoke_handler(tauri::generate_handler![
         get_native_health,
@@ -116,10 +248,16 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         start_analysis,
         cancel_analysis,
         write_tracks,
+        discover_libraries,
+        load_playlist,
         load_settings,
         save_settings,
         pick_audio_files,
-        pick_audio_folder
+        pick_audio_folder,
+        pick_playlist_file,
+        new_batch_window,
+        get_app_info,
+        open_project_url
     ])
 }
 
@@ -128,9 +266,24 @@ pub fn run() {
     register_commands(
         tauri::Builder::default()
             .plugin(tauri_plugin_shell::init())
+            .plugin(tauri_plugin_opener::init())
+            .on_menu_event(|app, event| match event.id().as_ref() {
+                "new-batch" => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = create_batch_window(&app);
+                    });
+                }
+                "settings" => emit_menu_action(app, "settings"),
+                "check-updates" => emit_menu_action(app, "check-updates"),
+                "about-keyfinder" => emit_menu_action(app, "about"),
+                _ => {}
+            })
             .setup(|app| {
+                install_menu(app)?;
                 let bridge = NativeBridge::launch_sidecar(app.handle());
                 app.manage(bridge);
+                app.manage(DesktopApp(app.handle().clone()));
                 let settings_store =
                     settings::Store::from_app(app.handle()).map_err(std::io::Error::other)?;
                 if let Some(window) = app.get_webview_window("main") {
@@ -169,5 +322,5 @@ pub fn run() {
             }),
     )
     .run(tauri::generate_context!())
-    .expect("failed to run KeyFinder");
+    .expect("failed to run Neo KeyFinder");
 }

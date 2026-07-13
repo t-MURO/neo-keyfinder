@@ -64,14 +64,19 @@ run("cmake", configureArguments);
 run("cmake", ["--build", buildRoot, "--config", configuration, "--parallel"]);
 
 const extension = process.platform === "win32" ? ".exe" : "";
-const candidates = [
+const sidecarCandidates = [
   join(buildRoot, `keyfinder-native${extension}`),
   join(buildRoot, configuration, `keyfinder-native${extension}`),
 ];
-const source = candidates.find(existsSync);
+const cliCandidates = [
+  join(buildRoot, `keyfinder${extension}`),
+  join(buildRoot, configuration, `keyfinder${extension}`),
+];
+const source = sidecarCandidates.find(existsSync);
+const cliSource = cliCandidates.find(existsSync);
 
-if (!source) {
-  throw new Error(`Native engine was not produced in ${buildRoot}`);
+if (!source || !cliSource) {
+  throw new Error(`Native engine and CLI were not produced in ${buildRoot}`);
 }
 
 const targetTriple = execFileSync("rustc", ["--print", "host-tuple"], {
@@ -85,3 +90,8 @@ const destination = join(
 copyFileSync(source, destination);
 if (process.platform !== "win32") chmodSync(destination, 0o755);
 console.log(`Prepared sidecar: ${destination}`);
+
+const cliDestination = join(binariesRoot, `keyfinder-${targetTriple}${extension}`);
+copyFileSync(cliSource, cliDestination);
+if (process.platform !== "win32") chmodSync(cliDestination, 0o755);
+console.log(`Prepared CLI: ${cliDestination}`);

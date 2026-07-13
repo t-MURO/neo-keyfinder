@@ -1,9 +1,14 @@
+#include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <iostream>
+#include <mutex>
 #include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
+#include "keyfinder/engine.hpp"
 #include "keyfinder/protocol.hpp"
 
 namespace {
@@ -59,6 +64,52 @@ int main() {
       R"({"version":1,"requestId":"test-4","method":"health","params":{"extra":true}})");
   expect(invalid_params["error"]["code"] == "INVALID_PARAMS",
          "health rejects unexpected parameters");
+
+  std::mutex events_mutex;
+  std::vector<nlohmann::json> events;
+  {
+    keyfinder::domain::Engine engine([&](const nlohmann::json& event) {
+      std::lock_guard lock(events_mutex);
+      events.push_back(event);
+    });
+    const auto start = keyfinder::protocol::parse_request(
+        R"({"version":1,"requestId":"window-job","method":"startAnalysis","params":{"owner":"batch-7","tracks":[{"id":"missing","path":"/definitely/missing.wav","filename":"missing.wav","status":"ready"}],"settings":{}}})");
+    const auto response = engine.dispatch(start);
+    expect(response["result"]["jobId"].is_string(),
+           "analysis starts with an owning window");
+  }
+  expect(!events.empty(), "analysis emits a terminal event");
+  for (const auto& event : events) {
+    expect(event["owner"] == "batch-7",
+           "every asynchronous event preserves its owning window");
+  }
+
+  std::mutex ordered_mutex;
+  std::condition_variable ordered_condition;
+  std::vector<std::string> analyzing_order;
+  bool ordered_finished = false;
+  {
+    keyfinder::domain::Engine engine([&](const nlohmann::json& event) {
+      std::lock_guard lock(ordered_mutex);
+      if (event.value("event", "") == "trackUpdated" &&
+          event["payload"]["track"].value("status", "") == "analyzing") {
+        analyzing_order.push_back(event["payload"]["track"].value("id", ""));
+      }
+      if (event.value("event", "") == "jobFinished") {
+        ordered_finished = true;
+        ordered_condition.notify_all();
+      }
+    });
+    const auto start = keyfinder::protocol::parse_request(
+        R"({"version":1,"requestId":"ordered-job","method":"startAnalysis","params":{"owner":"batch-8","tracks":[{"id":"first","path":"missing-first.wav","filename":"missing-first.wav","status":"ready"},{"id":"second","path":"missing-second.wav","filename":"missing-second.wav","status":"ready"},{"id":"third","path":"missing-third.wav","filename":"missing-third.wav","status":"ready"}],"settings":{"parallel":true}}})");
+    (void)engine.dispatch(start);
+    std::unique_lock lock(ordered_mutex);
+    expect(ordered_condition.wait_for(lock, std::chrono::seconds(5),
+                                      [&] { return ordered_finished; }),
+           "parallel analysis finishes within the test timeout");
+    expect(analyzing_order == std::vector<std::string>{"first", "second", "third"},
+           "parallel analysis starts tracks in request order");
+  }
 
   return 0;
 }

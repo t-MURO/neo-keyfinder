@@ -11,6 +11,11 @@ const std::array<std::string, 25> kStandardCodes = {
     "Dbm", "D", "Dm", "Eb",  "Ebm", "E", "Em",  "F",  "Fm",
     "Gb", "Gbm", "G", "Gm", "Ab", "Abm", "..."};
 
+const std::array<std::string, 25> kDjCodes = {
+    "11B", "8A", "6B", "3A", "1B", "10A", "8B", "5A", "3B",
+    "12A", "10B", "7A", "5B", "2A", "12B", "9A", "7B", "4A",
+    "2B", "11A", "9B", "6A", "4B", "1A", ""};
+
 OutputSettings outputs_from_json(const nlohmann::json& value) {
   OutputSettings outputs;
   outputs.title = output_mode_from_string(value.value("title", "none"));
@@ -56,6 +61,8 @@ std::string to_string(NotationMode mode) {
       return "custom";
     case NotationMode::combined:
       return "combined";
+    case NotationMode::dj_combined:
+      return "djCombined";
   }
   throw std::invalid_argument("Unknown notation mode");
 }
@@ -64,6 +71,7 @@ NotationMode notation_mode_from_string(const std::string& value) {
   if (value == "standard") return NotationMode::standard;
   if (value == "custom") return NotationMode::custom;
   if (value == "combined") return NotationMode::combined;
+  if (value == "djCombined") return NotationMode::dj_combined;
   throw std::invalid_argument("Unknown notation mode: " + value);
 }
 
@@ -134,8 +142,13 @@ const std::array<std::string, 25>& standard_key_codes() {
 std::string key_code(int key, const Settings& settings) {
   if (key < 0 || static_cast<std::size_t>(key) >= kStandardCodes.size()) return "";
   const auto& standard = kStandardCodes[static_cast<std::size_t>(key)];
+  const auto& dj = kDjCodes[static_cast<std::size_t>(key)];
   const auto& custom = settings.custom_codes[static_cast<std::size_t>(key)];
-  if (settings.notation == NotationMode::standard || custom.empty()) return standard;
+  if (settings.notation == NotationMode::standard) return standard;
+  if (settings.notation == NotationMode::dj_combined) {
+    return dj.empty() ? standard : dj + settings.delimiter + standard;
+  }
+  if (custom.empty()) return standard;
   if (settings.notation == NotationMode::custom) return custom;
   return custom + " " + standard;
 }

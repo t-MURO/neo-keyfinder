@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <exception>
 #include <thread>
 #include <utility>
@@ -13,12 +14,16 @@ namespace keyfinder::domain {
 
 struct JobManager::Job {
   std::string id;
+  std::string owner;
   std::atomic<bool> cancelled{false};
   std::atomic<std::size_t> next_track{0};
   std::atomic<std::size_t> completed{0};
   std::atomic<std::uint64_t> sequence{1};
   std::atomic<bool> finished{false};
   std::mutex emit_mutex;
+  std::mutex start_order_mutex;
+  std::condition_variable start_order_condition;
+  std::size_t next_start_index{0};
   std::thread coordinator;
 };
 
@@ -29,11 +34,13 @@ void emit(const EventSink& sink,
           const std::string& event,
           nlohmann::json payload) {
   std::lock_guard lock(job->emit_mutex);
-  sink({{"version", 1},
-        {"event", event},
-        {"jobId", job->id},
-        {"sequence", job->sequence.fetch_add(1)},
-        {"payload", std::move(payload)}});
+  nlohmann::json envelope = {{"version", 1},
+                             {"event", event},
+                             {"jobId", job->id},
+                             {"sequence", job->sequence.fetch_add(1)},
+                             {"payload", std::move(payload)}};
+  if (!job->owner.empty()) envelope["owner"] = job->owner;
+  sink(envelope);
 }
 
 }  // namespace
@@ -50,11 +57,13 @@ JobManager::~JobManager() {
     }
   }
   for (const auto& job : jobs) {
+    job->start_order_condition.notify_all();
     if (job->coordinator.joinable()) job->coordinator.join();
   }
 }
 
-std::string JobManager::start(std::vector<Track> tracks, Settings settings) {
+std::string JobManager::start(std::vector<Track> tracks, Settings settings,
+                              std::string owner) {
   {
     std::lock_guard lock(jobs_mutex_);
     for (auto iterator = jobs_.begin(); iterator != jobs_.end();) {
@@ -70,6 +79,7 @@ std::string JobManager::start(std::vector<Track> tracks, Settings settings) {
   }
   auto job = std::make_shared<Job>();
   job->id = "job-" + std::to_string(next_job_id_.fetch_add(1));
+  job->owner = std::move(owner);
   {
     std::lock_guard lock(jobs_mutex_);
     jobs_[job->id] = job;
@@ -93,13 +103,30 @@ std::string JobManager::start(std::vector<Track> tracks, Settings settings) {
               if (index >= tracks.size()) return;
               auto track = tracks[index];
 
-              if (settings.skip_existing && outputs_already_satisfied(track, settings)) {
-                track.status = TrackStatus::skipped;
-                emit(sink, job, "trackUpdated", {{"track", to_json(track)}});
-              } else {
-                track.status = TrackStatus::analyzing;
+              const auto skipped =
+                  settings.skip_existing && outputs_already_satisfied(track, settings);
+              bool cancelled_before_start = false;
+              {
+                std::unique_lock start_lock(job->start_order_mutex);
+                job->start_order_condition.wait(start_lock, [&] {
+                  return job->cancelled || job->next_start_index == index;
+                });
+                cancelled_before_start = job->cancelled;
+                if (!cancelled_before_start) {
+                  track.status = skipped ? TrackStatus::skipped
+                                         : TrackStatus::analyzing;
+                  if (!skipped) track.error.reset();
+                  emit(sink, job, "trackUpdated", {{"track", to_json(track)}});
+                  ++job->next_start_index;
+                }
+              }
+              job->start_order_condition.notify_all();
+
+              if (cancelled_before_start) {
+                track.status = TrackStatus::cancelled;
                 track.error.reset();
                 emit(sink, job, "trackUpdated", {{"track", to_json(track)}});
+              } else if (!skipped) {
                 try {
                   double last_progress = -1.0;
                   const auto analysis = analyze_file(
@@ -177,6 +204,7 @@ bool JobManager::cancel(const std::string& job_id) {
   if (iterator == jobs_.end()) return false;
   if (iterator->second->finished) return false;
   iterator->second->cancelled = true;
+  iterator->second->start_order_condition.notify_all();
   return true;
 }
 

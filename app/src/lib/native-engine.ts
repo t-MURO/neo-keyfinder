@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { NativeEvent, ScanWarning, Settings, Track } from "./types";
+import type { AppInfo, NativeEvent, PlaylistResult, ScanWarning, Settings, Track } from "./types";
 
 export interface NativeHealth {
   service: "keyfinder-native";
@@ -40,7 +40,7 @@ export async function startAnalysis(
   tracks: Track[],
   settings: Settings,
 ): Promise<{ jobId: string }> {
-  return invoke("start_analysis", { tracks, settings });
+  return invoke("start_analysis", { tracks, settings, owner: getCurrentWebview().label });
 }
 
 export async function cancelAnalysis(
@@ -54,6 +54,34 @@ export async function writeTracks(
   settings: Settings,
 ): Promise<{ tracks: Track[] }> {
   return invoke("write_tracks", { tracks, settings });
+}
+
+export async function discoverLibraries(settings: Settings): Promise<PlaylistResult> {
+  return invoke("discover_libraries", { settings });
+}
+
+export async function loadPlaylist(path: string): Promise<PlaylistResult> {
+  return invoke("load_playlist", { path });
+}
+
+export async function pickPlaylistFile(): Promise<string | null> {
+  return invoke<string | null>("pick_playlist_file");
+}
+
+export async function newBatchWindow(): Promise<string> {
+  return invoke<string>("new_batch_window");
+}
+
+export async function getAppInfo(): Promise<AppInfo> {
+  return invoke<AppInfo>("get_app_info");
+}
+
+export async function openProjectUrl(url: string): Promise<void> {
+  return invoke("open_project_url", { url });
+}
+
+export function listenMenuActions(handler: (action: string) => void): Promise<UnlistenFn> {
+  return listen<string>("menu-action", ({ payload }) => handler(payload));
 }
 
 export function listenNativeEvents(

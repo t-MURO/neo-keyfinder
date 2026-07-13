@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,7 +12,8 @@ if (!process.env.VCPKG_ROOT) {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nativeRoot = join(root, "native");
-const products = [];
+const sidecars = [];
+const clis = [];
 
 function run(command, args) {
   execFileSync(command, args, { cwd: root, stdio: "inherit" });
@@ -32,13 +33,19 @@ for (const architecture of ["arm64", "x64"]) {
     `-DCMAKE_OSX_ARCHITECTURES=${architecture === "x64" ? "x86_64" : "arm64"}`,
     "-DCMAKE_OSX_DEPLOYMENT_TARGET=10.15",
   ]);
-  run("cmake", ["--build", buildRoot, "--config", "Release", "--target", "keyfinder-native", "--parallel"]);
-  products.push(join(buildRoot, "keyfinder-native"));
+  run("cmake", ["--build", buildRoot, "--config", "Release", "--target", "keyfinder-native", "keyfinder-cli", "--parallel"]);
+  sidecars.push(join(buildRoot, "keyfinder-native"));
+  clis.push(join(buildRoot, "keyfinder"));
 }
 
 const binaries = join(root, "src-tauri", "binaries");
 mkdirSync(binaries, { recursive: true });
 const destination = join(binaries, "keyfinder-native-universal-apple-darwin");
-run("lipo", ["-create", ...products, "-output", destination]);
+run("lipo", ["-create", ...sidecars, "-output", destination]);
 chmodSync(destination, 0o755);
 console.log(`Prepared universal sidecar: ${destination}`);
+
+const cliDestination = join(binaries, "keyfinder-universal-apple-darwin");
+run("lipo", ["-create", ...clis, "-output", cliDestination]);
+chmodSync(cliDestination, 0o755);
+console.log(`Prepared universal CLI: ${cliDestination}`);

@@ -7,6 +7,7 @@
 
 #include "keyfinder/file_scanner.hpp"
 #include "keyfinder/health.hpp"
+#include "keyfinder/playlists.hpp"
 #include "keyfinder/settings.hpp"
 #include "keyfinder/writer.hpp"
 
@@ -56,6 +57,33 @@ nlohmann::json Engine::dispatch(const protocol::Request& request) {
         request.request_id, {{"tracks", tracks}, {"warnings", warnings}});
   }
 
+  if (request.method == "discoverLibraries") {
+    const auto settings =
+        settings_from_json(request.params.value("settings", nlohmann::json::object()));
+    const auto discovered = discover_libraries(settings);
+    nlohmann::json playlists = nlohmann::json::array();
+    nlohmann::json warnings = nlohmann::json::array();
+    for (const auto& playlist : discovered.playlists) playlists.push_back(to_json(playlist));
+    for (const auto& warning : discovered.warnings) warnings.push_back(to_json(warning));
+    return protocol::success_envelope(
+        request.request_id, {{"playlists", playlists}, {"warnings", warnings}});
+  }
+
+  if (request.method == "loadPlaylist") {
+    const auto path = request.params.value("path", "");
+    if (path.empty()) {
+      throw protocol::ProtocolError(request.request_id, "INVALID_PARAMS",
+                                    "path must be a non-empty string");
+    }
+    const auto loaded = load_standalone_playlist(path_from_utf8(path));
+    nlohmann::json playlists = nlohmann::json::array();
+    nlohmann::json warnings = nlohmann::json::array();
+    for (const auto& playlist : loaded.playlists) playlists.push_back(to_json(playlist));
+    for (const auto& warning : loaded.warnings) warnings.push_back(to_json(warning));
+    return protocol::success_envelope(
+        request.request_id, {{"playlists", playlists}, {"warnings", warnings}});
+  }
+
   if (request.method == "startAnalysis") {
     require_array(request.params, "tracks", request.request_id);
     std::vector<Track> tracks;
@@ -63,7 +91,8 @@ nlohmann::json Engine::dispatch(const protocol::Request& request) {
       tracks.push_back(track_from_json(value));
     }
     const auto settings = settings_from_json(request.params.value("settings", nlohmann::json::object()));
-    const auto job_id = jobs_.start(std::move(tracks), settings);
+    const auto owner = request.params.value("owner", "");
+    const auto job_id = jobs_.start(std::move(tracks), settings, owner);
     return protocol::success_envelope(request.request_id, {{"jobId", job_id}});
   }
 

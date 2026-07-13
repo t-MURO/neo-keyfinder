@@ -76,15 +76,20 @@ npm run dev
 The native build script performs four deterministic steps:
 
 1. Configures `native/build/` with CMake.
-2. Builds `keyfinder-native` and its unit tests.
+2. Builds `keyfinder-native`, the `keyfinder` CLI, and their unit tests.
 3. Reads the current Rust target triple.
-4. Copies the executable to
-   `src-tauri/binaries/keyfinder-native-<target-triple>` for Tauri.
+4. Copies the sidecar and CLI to
+   `src-tauri/binaries/keyfinder-native-<target-triple>` and
+   `src-tauri/binaries/keyfinder-<target-triple>` for Tauri packaging.
 
 The Rust backend starts that process once and keeps it alive. Each typed Tauri
 command sends one correlated JSON line. The continuous reader routes direct
-responses by request ID while forwarding ordered analysis events to the
-frontend.
+responses by request ID while forwarding ordered analysis events only to their
+owning batch window.
+
+The About view checks the repository's published release metadata through the
+GitHub latest-release API. A missing latest release is treated as “no published
+release” rather than as an application error.
 
 ## Tests and checks
 

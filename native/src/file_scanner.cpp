@@ -11,6 +11,14 @@
 namespace keyfinder::domain {
 namespace {
 
+struct PendingPath {
+  std::filesystem::path path;
+  bool discovered_in_directory{false};
+};
+
+const std::vector<std::string> kSupportedAudioExtensions{
+    "mp3", "m4a", "mp4", "wma", "flac", "aif", "aiff", "wav"};
+
 std::string lowercase(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(), [](unsigned char byte) {
     return static_cast<char>(std::tolower(byte));
@@ -26,16 +34,26 @@ std::string canonical_key(const std::filesystem::path& path) {
   return key;
 }
 
-bool extension_allowed(const std::filesystem::path& path,
-                       const Settings& settings) {
-  if (!settings.extension_filter_enabled) return true;
+bool has_extension(const std::filesystem::path& path,
+                   const std::vector<std::string>& extensions) {
   auto extension = path.extension().string();
   if (!extension.empty() && extension.front() == '.') extension.erase(0, 1);
   extension = lowercase(std::move(extension));
-  return std::any_of(settings.extensions.begin(), settings.extensions.end(),
+  return std::any_of(extensions.begin(), extensions.end(),
                      [&](const std::string& allowed) {
                        return extension == lowercase(allowed);
                      });
+}
+
+bool extension_allowed(const PendingPath& candidate,
+                       const Settings& settings) {
+  if (settings.extension_filter_enabled) {
+    return has_extension(candidate.path, settings.extensions);
+  }
+  // Directly chosen files remain visible so the UI can explain why they
+  // cannot be read. Recursive folder intake stays focused on supported audio.
+  return !candidate.discovered_in_directory ||
+         has_extension(candidate.path, kSupportedAudioExtensions);
 }
 
 void warn(ScanResult& result,
@@ -51,7 +69,8 @@ void warn(ScanResult& result,
 ScanResult scan_paths(const std::vector<std::filesystem::path>& inputs,
                       const Settings& settings) {
   ScanResult result;
-  std::deque<std::filesystem::path> pending(inputs.begin(), inputs.end());
+  std::deque<PendingPath> pending;
+  for (const auto& input : inputs) pending.push_back({input, false});
   std::unordered_set<std::string> visited_directories;
   std::unordered_set<std::string> visited_files;
 
@@ -60,14 +79,14 @@ ScanResult scan_paths(const std::vector<std::filesystem::path>& inputs,
     pending.pop_front();
 
     std::error_code error;
-    if (!std::filesystem::exists(candidate, error) || error) {
-      warn(result, candidate, "NOT_FOUND", "The path does not exist");
+    if (!std::filesystem::exists(candidate.path, error) || error) {
+      warn(result, candidate.path, "NOT_FOUND", "The path does not exist");
       continue;
     }
 
-    const auto canonical = std::filesystem::weakly_canonical(candidate, error);
+    const auto canonical = std::filesystem::weakly_canonical(candidate.path, error);
     if (error) {
-      warn(result, candidate, "CANONICALIZE_FAILED", error.message());
+      warn(result, candidate.path, "CANONICALIZE_FAILED", error.message());
       continue;
     }
 
@@ -81,12 +100,14 @@ ScanResult scan_paths(const std::vector<std::filesystem::path>& inputs,
         warn(result, canonical, "DIRECTORY_READ_FAILED", error.message());
         continue;
       }
-      for (const auto& entry : iterator) pending.push_back(entry.path());
+      for (const auto& entry : iterator) pending.push_back({entry.path(), true});
       continue;
     }
 
     if (!std::filesystem::is_regular_file(canonical, error) || error) continue;
-    if (!extension_allowed(canonical, settings)) continue;
+    if (!extension_allowed({canonical, candidate.discovered_in_directory}, settings)) {
+      continue;
+    }
 
     const auto key = canonical_key(canonical);
     if (!visited_files.insert(key).second) continue;

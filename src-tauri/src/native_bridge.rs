@@ -55,7 +55,15 @@ impl NativeBridge {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             run_sidecar_reader(events, pending_for_reader, move |event| {
-                let _ = app.emit("native-event", event);
+                if let Some(owner) = event
+                    .get("owner")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                {
+                    let _ = app.emit_to(owner, "native-event", event);
+                } else {
+                    let _ = app.emit("native-event", event);
+                }
             })
             .await;
         });

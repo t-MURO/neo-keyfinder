@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.24)
 project(
   neo_keyfinder_native
   VERSION 0.1.0
-  DESCRIPTION "Native engine for the KeyFinder rebuild"
+  DESCRIPTION "Native engine for the Neo KeyFinder rebuild"
   LANGUAGES CXX
 )
 
@@ -25,6 +25,17 @@ FetchContent_Declare(
   GIT_SHALLOW FALSE
 )
 FetchContent_MakeAvailable(nlohmann_json)
+
+# Pinned pugixml v1.15 for read-only iTunes and Traktor XML parsing.
+FetchContent_Declare(
+  pugixml
+  GIT_REPOSITORY https://github.com/zeux/pugixml.git
+  GIT_TAG ee86beb30e4973f5feffe3ce63bfa4fbadf72f38
+  GIT_SHALLOW FALSE
+)
+set(PUGIXML_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(PUGIXML_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(pugixml)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(TAGLIB REQUIRED IMPORTED_TARGET taglib>=2.0)
@@ -54,6 +65,7 @@ add_library(keyfinder_domain STATIC
   src/metadata.cpp
   src/model.cpp
   src/output_rules.cpp
+  src/playlists.cpp
   src/settings.cpp
   src/writer.cpp
 )
@@ -66,6 +78,7 @@ target_link_libraries(
   keyfinder_domain
   PUBLIC
     nlohmann_json::nlohmann_json
+    pugixml::pugixml
   PRIVATE
     PkgConfig::FFMPEG
     PkgConfig::KEYFINDER
@@ -87,14 +100,20 @@ target_link_libraries(
 add_executable(keyfinder-native src/main.cpp)
 target_link_libraries(keyfinder-native PRIVATE keyfinder_protocol)
 
+add_executable(keyfinder-cli src/cli_main.cpp)
+set_target_properties(keyfinder-cli PROPERTIES OUTPUT_NAME keyfinder)
+target_link_libraries(keyfinder-cli PRIVATE keyfinder_domain)
+
 if(MSVC)
   target_compile_options(keyfinder_domain PRIVATE /W4 /permissive-)
   target_compile_options(keyfinder_protocol PRIVATE /W4 /permissive-)
   target_compile_options(keyfinder-native PRIVATE /W4 /permissive-)
+  target_compile_options(keyfinder-cli PRIVATE /W4 /permissive-)
 else()
   target_compile_options(keyfinder_domain PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(keyfinder_protocol PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(keyfinder-native PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(keyfinder-cli PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 if(NKF_BUILD_TESTS)
@@ -135,6 +154,15 @@ if(NKF_BUILD_TESTS)
     PRIVATE NKF_LEGACY_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../is_KeyFinder/test-resources"
   )
   add_test(NAME filesystem-tests COMMAND filesystem-tests)
+
+  add_executable(playlist-tests tests/playlist_tests.cpp)
+  target_link_libraries(playlist-tests PRIVATE keyfinder_domain)
+  add_test(NAME playlist-tests COMMAND playlist-tests)
+
+  add_test(NAME cli-help COMMAND keyfinder-cli --help)
+  set_tests_properties(cli-help PROPERTIES PASS_REGULAR_EXPRESSION "Usage: keyfinder")
+  add_test(NAME cli-version COMMAND keyfinder-cli --version)
+  set_tests_properties(cli-version PROPERTIES PASS_REGULAR_EXPRESSION "keyfinder 0.1.0")
 endif()
 
-install(TARGETS keyfinder-native RUNTIME DESTINATION bin)
+install(TARGETS keyfinder-native keyfinder-cli RUNTIME DESTINATION bin)

@@ -25,13 +25,17 @@ pub fn defaults() -> Value {
         "delimiter": " - ",
         "notation": "standard",
         "customCodes": vec![""; 25],
+        "features": {
+            "playlistsEnabled": false
+        },
         "libraryPaths": {
             "itunes": format!("{home}/Music/iTunes/iTunes Music Library.xml"),
             "traktor": format!("{home}/Documents/Native Instruments/Traktor 2.7.1/collection.nml"),
             "serato": format!("{home}/Music/_Serato_/database V2")
         },
         "presentation": {
-            "compactRows": false, "windowWidth": 1120, "windowHeight": 760
+            "compactRows": false, "libraryOpen": true,
+            "windowWidth": 1120, "windowHeight": 760
         },
         "legacyMigrationCompleted": false
     })
@@ -400,6 +404,8 @@ mod tests {
         assert_eq!(merged["outputs"]["comment"], "append");
         assert_eq!(merged["outputs"]["title"], "none");
         assert_eq!(merged["maxDurationMinutes"], 60);
+        assert_eq!(merged["features"]["playlistsEnabled"], false);
+        assert_eq!(merged["presentation"]["libraryOpen"], true);
     }
 
     #[test]

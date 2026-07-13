@@ -66,6 +66,11 @@ int main() {
          "missing inputs produce a warning");
 
   Settings unfiltered;
+  const auto unfiltered_folder_scan =
+      keyfinder::domain::scan_paths({temporary}, unfiltered);
+  expect(unfiltered_folder_scan.tracks.size() == 1 &&
+             unfiltered_folder_scan.tracks.front().filename == "Tést.WAV",
+         "folder intake hides files that are not supported audio");
   const auto unfiltered_scan = keyfinder::domain::scan_paths({ignored}, unfiltered);
   expect(unfiltered_scan.tracks.size() == 1,
          "unfiltered intake retains unsupported files as rows");
