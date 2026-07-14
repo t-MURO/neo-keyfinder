@@ -25,7 +25,7 @@ xcode-select --install
 brew install cmake ffmpeg taglib libkeyfinder fftw
 ```
 
-Tauri 2 supports macOS 10.15 and newer. A full Xcode installation is needed
+The packaged Apple Silicon build targets macOS 11 and newer. A full Xcode installation is needed
 only when later work adds iOS targets; mobile is not part of this project.
 
 ### Windows x64

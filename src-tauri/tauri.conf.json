@@ -41,6 +41,9 @@
     "category": "Music",
     "shortDescription": "Estimate musical keys and BPM for harmonic mixing",
     "longDescription": "NeoKeyAndBpmFinder estimates the musical key and BPM of audio tracks to support harmonic mixing.",
-    "copyright": "AGPL-3.0-or-later"
+    "copyright": "AGPL-3.0-or-later",
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
   }
 }

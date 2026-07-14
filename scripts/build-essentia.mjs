@@ -58,6 +58,7 @@ export function installVcpkgManifest(vcpkgRoot, triplet) {
     "install",
     `--x-manifest-root=${root}`,
     `--overlay-ports=${join(root, "vcpkg", "ports")}`,
+    `--overlay-triplets=${join(root, "vcpkg", "triplets")}`,
   ];
   if (triplet) args.push(`--triplet=${triplet}`);
   run(executable, args);

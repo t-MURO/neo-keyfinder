@@ -65,11 +65,15 @@ const configureArguments = [
   "-DNKF_BUILD_TESTS=ON",
   `-DESSENTIA_ROOT=${essentiaRoot}`,
 ];
+if (process.platform === "darwin") {
+  configureArguments.push("-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0");
+}
 if (vcpkgRoot) {
   configureArguments.push(
     `-DCMAKE_TOOLCHAIN_FILE=${join(vcpkgRoot, "scripts", "buildsystems", "vcpkg.cmake")}`,
     `-DVCPKG_MANIFEST_DIR=${root}`,
     `-DVCPKG_OVERLAY_PORTS=${join(root, "vcpkg", "ports")}`,
+    `-DVCPKG_OVERLAY_TRIPLETS=${join(root, "vcpkg", "triplets")}`,
   );
   if (process.env.VCPKG_TARGET_TRIPLET) {
     configureArguments.push(`-DVCPKG_TARGET_TRIPLET=${process.env.VCPKG_TARGET_TRIPLET}`);

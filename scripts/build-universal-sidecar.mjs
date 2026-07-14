@@ -37,9 +37,10 @@ for (const architecture of ["arm64", "x64"]) {
     `-DCMAKE_TOOLCHAIN_FILE=${join(process.env.VCPKG_ROOT, "scripts", "buildsystems", "vcpkg.cmake")}`,
     `-DVCPKG_MANIFEST_DIR=${root}`,
     `-DVCPKG_OVERLAY_PORTS=${join(root, "vcpkg", "ports")}`,
+    `-DVCPKG_OVERLAY_TRIPLETS=${join(root, "vcpkg", "triplets")}`,
     `-DVCPKG_TARGET_TRIPLET=${vcpkgTriplet}`,
     `-DCMAKE_OSX_ARCHITECTURES=${architecture === "x64" ? "x86_64" : "arm64"}`,
-    "-DCMAKE_OSX_DEPLOYMENT_TARGET=10.15",
+    "-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0",
   ]);
   run("cmake", ["--build", buildRoot, "--config", "Release", "--target", "keyfinder-native", "keyfinder-cli", "--parallel"]);
   sidecars.push(join(buildRoot, "keyfinder-native"));
