@@ -1,6 +1,6 @@
-# Neo KeyFinder
+# NeoKeyAndBpmFinder
 
-Neo KeyFinder is a modern, cross-platform rebuild of the original Qt application.
+NeoKeyAndBpmFinder is a modern, cross-platform rebuild of the original Qt application.
 It is intentionally isolated from the read-only reference checkout in
 `../is_KeyFinder/`.
 
@@ -8,15 +8,19 @@ The Phase 1 core workflow and Phase 2 integrations are implemented:
 
 - Recursive file/folder intake, drag and drop, canonical deduplication, symlink
   cycle protection, extension filtering, and per-file errors.
-- Streaming FFmpeg decode into pinned libkeyfinder 2.2.8, with bounded parallel
-  jobs, progress, duration limits, cancellation, and retryable rows.
+- Streaming FFmpeg decode into pinned libkeyfinder 2.2.8 and Essentia rhythm
+  analysis for key and BPM detection, with bounded parallel jobs, progress,
+  duration limits, cancellation, and retryable rows.
 - TagLib metadata reads and independent field writes for the supplied MP3,
   FLAC, AAC, WMA, WAV, and AIFF corpus. An in-process FFmpeg remux fallback
   covers the supplied ALAC fixture.
-- Legacy output rules, notation modes, skip behavior, automatic writes, manual
-  writes, and collision-safe filename changes.
+- Legacy key output rules, notation modes, skip behavior, automatic writes,
+  manual writes, standard dedicated BPM-tag output, and collision-safe filename
+  changes. Detected BPM is rounded to the nearest whole value when embedded for
+  broad player and DJ-software compatibility.
 - A virtualized, sortable React batch table with multi-selection, copy, remove,
-  clear, analysis/write controls, persisted settings, and window sizing.
+  clear, key/BPM columns, analysis/write controls, persisted settings, and
+  window sizing.
 - A restricted Tauri bridge to one persistent, versioned JSON-Lines sidecar.
   The webview receives no shell or unrestricted filesystem permission.
 - One-time compatible legacy QSettings migration on macOS, Windows, and Linux.
@@ -24,7 +28,7 @@ The Phase 1 core workflow and Phase 2 integrations are implemented:
   M3U/M3U8 and iTunes XML imports with replacement warnings.
 - Independent batch windows with platform-native File, Edit, Window, and Help
   menus. Analysis events are routed only to the window that owns each job.
-- A bundled native `keyfinder` CLI, an in-app GPL/dependency About view, a
+- A bundled native `keyfinder` CLI, an in-app AGPL/dependency About view, a
   GitHub published-release check, and typed translation infrastructure seeded
   with the English catalog.
 
@@ -65,6 +69,6 @@ neo-keyfinder/
 
 ## License
 
-The replacement is licensed under GPL-3.0-or-later. Dependency licenses remain
+The replacement is licensed under AGPL-3.0-or-later. Dependency licenses remain
 the property of their respective authors and are included by their respective
 package managers/bundlers.

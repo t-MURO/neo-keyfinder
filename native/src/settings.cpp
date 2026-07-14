@@ -25,6 +25,10 @@ OutputSettings outputs_from_json(const nlohmann::json& value) {
   outputs.grouping = output_mode_from_string(value.value("grouping", "none"));
   outputs.initial_key =
       output_mode_from_string(value.value("initialKey", "none"));
+  outputs.bpm = output_mode_from_string(value.value("bpm", "none"));
+  if (outputs.bpm != OutputMode::none && outputs.bpm != OutputMode::overwrite) {
+    outputs.bpm = OutputMode::none;
+  }
   outputs.filename = output_mode_from_string(value.value("filename", "none"));
   return outputs;
 }
@@ -79,6 +83,7 @@ nlohmann::json to_json(const Settings& settings) {
   return {
       {"schemaVersion", settings.schema_version},
       {"parallel", settings.parallel},
+      {"bpmAnalysisEnabled", settings.bpm_analysis_enabled},
       {"maxDurationMinutes", settings.max_duration_minutes},
       {"skipExisting", settings.skip_existing},
       {"automaticWrites", settings.automatic_writes},
@@ -91,6 +96,7 @@ nlohmann::json to_json(const Settings& settings) {
         {"comment", to_string(settings.outputs.comment)},
         {"grouping", to_string(settings.outputs.grouping)},
         {"initialKey", to_string(settings.outputs.initial_key)},
+        {"bpm", to_string(settings.outputs.bpm)},
         {"filename", to_string(settings.outputs.filename)}}},
       {"delimiter", settings.delimiter},
       {"notation", to_string(settings.notation)},
@@ -105,8 +111,9 @@ nlohmann::json to_json(const Settings& settings) {
 Settings settings_from_json(const nlohmann::json& value) {
   Settings settings;
   if (!value.is_object()) return settings;
-  settings.schema_version = value.value("schemaVersion", 1U);
+  settings.schema_version = value.value("schemaVersion", 2U);
   settings.parallel = value.value("parallel", true);
+  settings.bpm_analysis_enabled = value.value("bpmAnalysisEnabled", true);
   settings.max_duration_minutes = value.value("maxDurationMinutes", 60U);
   settings.skip_existing = value.value("skipExisting", false);
   settings.automatic_writes = value.value("automaticWrites", false);

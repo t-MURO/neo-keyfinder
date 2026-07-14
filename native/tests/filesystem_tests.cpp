@@ -85,7 +85,7 @@ int main() {
   Settings rename;
   rename.outputs.comment = OutputMode::none;
   rename.outputs.filename = OutputMode::prepend;
-  const auto collided = keyfinder::domain::write_detected_key(
+  const auto collided = keyfinder::domain::write_analysis_results(
       make_track(source, "stable-id"), rename);
   expect(collided.error && collided.error->code == "PARTIAL_WRITE",
          "filename collisions are rejected independently");
@@ -94,13 +94,42 @@ int main() {
 
   const auto rename_source = temporary / "other.wav";
   std::filesystem::copy_file(fixtures / "readTags/wav.wav", rename_source);
-  const auto renamed = keyfinder::domain::write_detected_key(
+  const auto renamed = keyfinder::domain::write_analysis_results(
       make_track(rename_source, "stable-id"), rename);
   expect(!renamed.error, "a non-colliding filename write succeeds");
   expect(renamed.id == "stable-id", "renames preserve the stable track identity");
   expect(renamed.filename == "A - other.wav" &&
              std::filesystem::exists(temporary / "A - other.wav"),
          "renames preserve the extension and update the model");
+
+  const auto bpm_source = temporary / "bpm.wav";
+  std::filesystem::copy_file(fixtures / "readTags/wav.wav", bpm_source);
+  Settings bpm_settings;
+  bpm_settings.outputs.comment = OutputMode::none;
+  bpm_settings.outputs.bpm = OutputMode::overwrite;
+  auto bpm_track = make_track(bpm_source, "bpm-wav");
+  bpm_track.detected_key.reset();
+  bpm_track.detected_bpm = 128.6;
+  const auto bpm_written = keyfinder::domain::write_analysis_results(
+      std::move(bpm_track), bpm_settings);
+  expect(!bpm_written.error && bpm_written.initial_bpm == 129.0,
+         "detected BPM is rounded and written without a detected key");
+  auto bpm_reread = make_track(bpm_source, "bpm-wav-reread");
+  expect(bpm_reread.initial_bpm == 129.0,
+         "WAV BPM metadata survives a round trip");
+
+  const auto m4a_source = temporary / "bpm.m4a";
+  std::filesystem::copy_file(fixtures / "readTags/aac.m4a", m4a_source);
+  auto m4a_track = make_track(m4a_source, "bpm-m4a");
+  m4a_track.detected_key.reset();
+  m4a_track.detected_bpm = 124.4;
+  const auto m4a_written = keyfinder::domain::write_analysis_results(
+      std::move(m4a_track), bpm_settings);
+  expect(!m4a_written.error && m4a_written.initial_bpm == 124.0,
+         "M4A detected BPM uses the dedicated tempo metadata");
+  auto m4a_reread = make_track(m4a_source, "bpm-m4a-reread");
+  expect(m4a_reread.initial_bpm == 124.0,
+         "M4A BPM metadata survives an FFmpeg remux round trip");
 
   std::filesystem::remove_all(temporary);
   return 0;

@@ -9,7 +9,7 @@ namespace keyfinder::domain {
 
 [[nodiscard]] bool outputs_already_satisfied(const Track& track,
                                              const Settings& settings);
-[[nodiscard]] Track write_detected_key(
+[[nodiscard]] Track write_analysis_results(
     Track track, const Settings& settings,
     const std::function<bool()>& is_cancelled = {});
 

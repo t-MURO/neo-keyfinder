@@ -1,5 +1,6 @@
 #include "keyfinder/writer.hpp"
 
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <utility>
@@ -49,6 +50,14 @@ std::string join_errors(const std::vector<std::string>& errors) {
   return result;
 }
 
+bool key_outputs_enabled(const Settings& settings) {
+  Track track;
+  for (const auto& destination : metadata_destinations(track, settings)) {
+    if (destination.mode != OutputMode::none) return true;
+  }
+  return settings.outputs.filename != OutputMode::none;
+}
+
 }  // namespace
 
 bool outputs_already_satisfied(const Track& input, const Settings& settings) {
@@ -70,61 +79,89 @@ bool outputs_already_satisfied(const Track& input, const Settings& settings) {
       return false;
     }
   }
+  if (settings.outputs.bpm != OutputMode::none) {
+    any_enabled = true;
+    if (!input.initial_bpm) return false;
+  }
   return any_enabled;
 }
 
-Track write_detected_key(Track track, const Settings& settings,
-                         const std::function<bool()>& is_cancelled) {
-  if (!track.detected_key) {
-    track.error = TrackError{"NO_DETECTED_KEY", "write",
-                             "Only successfully analyzed tracks can be written"};
-    return track;
-  }
-
-  const auto code = key_code(*track.detected_key, settings);
+Track write_analysis_results(Track track, const Settings& settings,
+                             const std::function<bool()>& is_cancelled) {
   std::vector<std::string> errors;
-  for (const auto& destination : metadata_destinations(track, settings)) {
-    const auto next = apply_output_rule(code, *destination.value, destination.limit,
-                                        destination.mode, settings.delimiter);
-    if (!next) continue;
-    if (is_cancelled && is_cancelled()) {
-      track.status = TrackStatus::cancelled;
-      track.error = TrackError{"WRITE_CANCELLED", "write",
-                               "Writing was cancelled"};
-      return track;
-    }
-    const auto mutation =
-        write_metadata_field(track.path, destination.property, *next);
-    if (mutation.changed) {
-      *destination.value = mutation.value;
-    } else {
-      append_error(errors, destination.property, mutation.error);
+  if (key_outputs_enabled(settings) && !track.detected_key) {
+    append_error(errors, "key", "No detected key is available");
+  }
+
+  if (track.detected_key) {
+    const auto code = key_code(*track.detected_key, settings);
+    for (const auto& destination : metadata_destinations(track, settings)) {
+      const auto next = apply_output_rule(code, *destination.value, destination.limit,
+                                          destination.mode, settings.delimiter);
+      if (!next) continue;
+      if (is_cancelled && is_cancelled()) {
+        track.status = TrackStatus::cancelled;
+        track.error = TrackError{"WRITE_CANCELLED", "write",
+                                 "Writing was cancelled"};
+        return track;
+      }
+      const auto mutation =
+          write_metadata_field(track.path, destination.property, *next);
+      if (mutation.changed) {
+        *destination.value = mutation.value;
+      } else {
+        append_error(errors, destination.property, mutation.error);
+      }
     }
   }
 
-  const auto next_name = apply_output_rule(
-      code, filename_stem(track), kFilenameCharacterLimit,
-      settings.outputs.filename, settings.delimiter);
-  if (next_name) {
-    if (is_cancelled && is_cancelled()) {
-      track.status = TrackStatus::cancelled;
-      track.error = TrackError{"WRITE_CANCELLED", "write",
-                               "Writing was cancelled"};
-      return track;
-    }
-    const auto target = track.path.parent_path() /
-                        path_from_utf8(*next_name + path_to_utf8(track.path.extension()));
-    std::error_code error;
-    if (std::filesystem::exists(target, error) && target != track.path) {
-      append_error(errors, "filename", "A file with the target name already exists");
+  if (settings.outputs.bpm != OutputMode::none) {
+    if (!track.detected_bpm) {
+      append_error(errors, "BPM", "No detected BPM is available");
     } else {
-      std::filesystem::rename(track.path, target, error);
-      if (error) {
-        append_error(errors, "filename", error.message());
+      if (is_cancelled && is_cancelled()) {
+        track.status = TrackStatus::cancelled;
+        track.error = TrackError{"WRITE_CANCELLED", "write",
+                                 "Writing was cancelled"};
+        return track;
+      }
+      const auto rounded_bpm = std::lround(*track.detected_bpm);
+      const auto mutation =
+          write_metadata_field(track.path, "BPM", std::to_string(rounded_bpm));
+      if (mutation.changed) {
+        track.initial_bpm = static_cast<double>(rounded_bpm);
       } else {
-        track.path = std::filesystem::weakly_canonical(target, error);
-        if (error) track.path = target;
-        track.filename = path_to_utf8(track.path.filename());
+        append_error(errors, "BPM", mutation.error);
+      }
+    }
+  }
+
+  if (track.detected_key) {
+    const auto code = key_code(*track.detected_key, settings);
+    const auto next_name = apply_output_rule(
+        code, filename_stem(track), kFilenameCharacterLimit,
+        settings.outputs.filename, settings.delimiter);
+    if (next_name) {
+      if (is_cancelled && is_cancelled()) {
+        track.status = TrackStatus::cancelled;
+        track.error = TrackError{"WRITE_CANCELLED", "write",
+                                 "Writing was cancelled"};
+        return track;
+      }
+      const auto target = track.path.parent_path() /
+                          path_from_utf8(*next_name + path_to_utf8(track.path.extension()));
+      std::error_code error;
+      if (std::filesystem::exists(target, error) && target != track.path) {
+        append_error(errors, "filename", "A file with the target name already exists");
+      } else {
+        std::filesystem::rename(track.path, target, error);
+        if (error) {
+          append_error(errors, "filename", error.message());
+        } else {
+          track.path = std::filesystem::weakly_canonical(target, error);
+          if (error) track.path = target;
+          track.filename = path_to_utf8(track.path.filename());
+        }
       }
     }
   }

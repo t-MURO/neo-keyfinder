@@ -4,14 +4,16 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Runtime};
 
 const SETTINGS_FILE: &str = "settings-v1.json";
+const SETTINGS_SCHEMA_VERSION: u64 = 2;
 
 pub fn defaults() -> Value {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_default();
     json!({
-        "schemaVersion": 1,
+        "schemaVersion": SETTINGS_SCHEMA_VERSION,
         "parallel": true,
+        "bpmAnalysisEnabled": true,
         "maxDurationMinutes": 60,
         "skipExisting": false,
         "automaticWrites": false,
@@ -20,7 +22,7 @@ pub fn defaults() -> Value {
         "outputs": {
             "title": "none", "artist": "none", "album": "none",
             "comment": "prepend", "grouping": "none",
-            "initialKey": "none", "filename": "none"
+            "initialKey": "none", "bpm": "none", "filename": "none"
         },
         "delimiter": " - ",
         "notation": "standard",
@@ -71,7 +73,20 @@ fn load_path(path: &PathBuf) -> Result<Value, String> {
             .map_err(|error| format!("Could not read settings: {error}"))?;
         let saved: Value = serde_json::from_str(&content)
             .map_err(|error| format!("Settings file is invalid: {error}"))?;
-        return Ok(merge(defaults(), saved));
+        let saved_version = saved
+            .get("schemaVersion")
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
+        let mut settings = merge(defaults(), saved);
+        if saved_version < SETTINGS_SCHEMA_VERSION {
+            // Automatic file writes must be explicitly enabled in this app.
+            // Older settings may have inherited this dangerous preference from
+            // the original KeyFinder installation.
+            settings["schemaVersion"] = json!(SETTINGS_SCHEMA_VERSION);
+            settings["automaticWrites"] = Value::Bool(false);
+            save_path(path, &settings)?;
+        }
+        return Ok(settings);
     }
 
     let mut settings = defaults();
@@ -162,7 +177,6 @@ fn migrate_legacy(settings: &mut Value) {
     let get = |key: &str| plist_lookup(&root, key).cloned();
 
     for (legacy, target) in [
-        ("tags/writeToFilesAutomatically", &["automaticWrites"][..]),
         ("batch/parallelBatchJobs", &["parallel"][..]),
         ("batch/skipFilesWithExistingTags", &["skipExisting"][..]),
         (
@@ -303,7 +317,6 @@ fn apply_flat_legacy(settings: &mut Value, get: impl Fn(&str) -> Option<String>)
     let boolean =
         |value: String| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes");
     for (legacy, target) in [
-        ("tags/writeToFilesAutomatically", &["automaticWrites"][..]),
         ("batch/parallelBatchJobs", &["parallel"][..]),
         ("batch/skipFilesWithExistingTags", &["skipExisting"][..]),
         (
@@ -401,8 +414,10 @@ mod tests {
             json!({"parallel": false, "outputs": {"comment": "append"}}),
         );
         assert_eq!(merged["parallel"], false);
+        assert_eq!(merged["bpmAnalysisEnabled"], true);
         assert_eq!(merged["outputs"]["comment"], "append");
         assert_eq!(merged["outputs"]["title"], "none");
+        assert_eq!(merged["outputs"]["bpm"], "none");
         assert_eq!(merged["maxDurationMinutes"], 60);
         assert_eq!(merged["features"]["playlistsEnabled"], false);
         assert_eq!(merged["presentation"]["libraryOpen"], true);
@@ -423,12 +438,41 @@ mod tests {
         apply_flat_legacy(&mut migrated, |key| {
             values.get(key).map(|value| (*value).to_owned())
         });
-        assert_eq!(migrated["automaticWrites"], true);
+        assert_eq!(migrated["automaticWrites"], false);
         assert_eq!(migrated["notation"], "combined");
         assert_eq!(migrated["outputs"]["initialKey"], "overwrite");
         assert_eq!(migrated["maxDurationMinutes"], 45);
         assert_eq!(migrated["extensions"], json!(["mp3", "flac"]));
         assert_eq!(migrated["customCodes"][0], "8B");
         assert_eq!(migrated["libraryPaths"]["traktor"], "/music/collection.nml");
+    }
+
+    #[test]
+    fn schema_upgrade_disables_inherited_automatic_writes() {
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be valid")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("neo-keyfinder-settings-{suffix}"));
+        let path = directory.join(SETTINGS_FILE);
+        save_path(
+            &path,
+            &json!({
+                "schemaVersion": 1,
+                "automaticWrites": true,
+                "outputs": { "comment": "prepend" }
+            }),
+        )
+        .expect("legacy settings fixture should save");
+
+        let upgraded = load_path(&path).expect("legacy settings should upgrade");
+        assert_eq!(upgraded["schemaVersion"], SETTINGS_SCHEMA_VERSION);
+        assert_eq!(upgraded["automaticWrites"], false);
+        let persisted: Value = serde_json::from_str(
+            &fs::read_to_string(&path).expect("upgraded settings should persist"),
+        )
+        .expect("upgraded settings should remain valid JSON");
+        assert_eq!(persisted["automaticWrites"], false);
+        let _ = fs::remove_dir_all(directory);
     }
 }

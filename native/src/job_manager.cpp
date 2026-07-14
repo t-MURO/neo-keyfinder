@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "keyfinder/analyzer.hpp"
+#include "keyfinder/bpm_analyzer.hpp"
 #include "keyfinder/writer.hpp"
 
 namespace keyfinder::domain {
@@ -88,11 +89,18 @@ std::string JobManager::start(std::vector<Track> tracks, Settings settings,
   const auto sink = sink_;
   job->coordinator = std::thread(
       [job, tracks = std::move(tracks), settings = std::move(settings), sink]() mutable {
+        if (!settings.bpm_analysis_enabled) {
+          settings.outputs.bpm = OutputMode::none;
+        }
         const auto total = tracks.size();
         const auto available = std::max(1U, std::thread::hardware_concurrency());
-        const auto worker_count = settings.parallel
-                                      ? std::min<std::size_t>(available, std::max<std::size_t>(1, total))
-                                      : 1;
+        auto worker_count = settings.parallel
+                                ? std::min<std::size_t>(
+                                      available, std::max<std::size_t>(1, total))
+                                : 1;
+        if (settings.bpm_analysis_enabled && bpm_detection_available()) {
+          worker_count = std::min<std::size_t>(2, worker_count);
+        }
         std::vector<std::thread> workers;
         workers.reserve(worker_count);
 
@@ -131,6 +139,7 @@ std::string JobManager::start(std::vector<Track> tracks, Settings settings,
                   double last_progress = -1.0;
                   const auto analysis = analyze_file(
                       track.path, settings.max_duration_minutes,
+                      settings.bpm_analysis_enabled,
                       [&]() { return job->cancelled.load(); },
                       [&](double fraction) {
                         if (fraction >= 1.0 || fraction - last_progress >= 0.02) {
@@ -141,9 +150,10 @@ std::string JobManager::start(std::vector<Track> tracks, Settings settings,
                       });
                   track.detected_key = analysis.key;
                   track.detected_code = key_code(analysis.key, settings);
+                  track.detected_bpm = analysis.bpm;
                   track.status = TrackStatus::completed;
                   if (settings.automatic_writes && !job->cancelled) {
-                    track = write_detected_key(
+                    track = write_analysis_results(
                         std::move(track), settings,
                         [&]() { return job->cancelled.load(); });
                   }

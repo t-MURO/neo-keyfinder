@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { AppInfo, NativeEvent, PlaylistResult, ScanWarning, Settings, Track } from "./types";
@@ -29,6 +29,31 @@ export async function pickAudioFolder(): Promise<string | null> {
   return invoke<string | null>("pick_audio_folder");
 }
 
+export async function prepareAudioPlayback(path: string): Promise<string> {
+  const canonicalPath = await invoke<string>("prepare_audio_playback", { path });
+  return convertFileSrc(canonicalPath);
+}
+
+export async function revealTrackInFolder(path: string): Promise<void> {
+  return invoke("reveal_audio_file", { path });
+}
+
+const waveformCache = new Map<string, Promise<number[]>>();
+
+export async function getAudioWaveform(path: string, points = 180): Promise<number[]> {
+  const cacheKey = `${path}\0${points}`;
+  const cached = waveformCache.get(cacheKey);
+  if (cached) return cached;
+  const request = invoke<{ peaks: number[] }>("get_audio_waveform", { path, points })
+    .then(({ peaks }) => peaks.map((peak) => Math.max(0, Math.min(1, Number(peak) || 0))))
+    .catch((error) => {
+      waveformCache.delete(cacheKey);
+      throw error;
+    });
+  waveformCache.set(cacheKey, request);
+  return request;
+}
+
 export async function expandFiles(
   paths: string[],
   settings: Settings,
@@ -39,8 +64,9 @@ export async function expandFiles(
 export async function startAnalysis(
   tracks: Track[],
   settings: Settings,
+  writeAuthorization = false,
 ): Promise<{ jobId: string }> {
-  return invoke("start_analysis", { tracks, settings, owner: getCurrentWebview().label });
+  return invoke("start_analysis", { tracks, settings, owner: getCurrentWebview().label, writeAuthorization });
 }
 
 export async function cancelAnalysis(

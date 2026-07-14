@@ -19,12 +19,14 @@ struct OutputSettings {
   OutputMode comment{OutputMode::prepend};
   OutputMode grouping{OutputMode::none};
   OutputMode initial_key{OutputMode::none};
+  OutputMode bpm{OutputMode::none};
   OutputMode filename{OutputMode::none};
 };
 
 struct Settings {
-  std::uint32_t schema_version{1};
+  std::uint32_t schema_version{2};
   bool parallel{true};
+  bool bpm_analysis_enabled{true};
   std::uint32_t max_duration_minutes{60};
   bool skip_existing{false};
   bool automatic_writes{false};

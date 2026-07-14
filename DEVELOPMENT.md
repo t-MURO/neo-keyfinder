@@ -5,6 +5,7 @@
 All platforms need:
 
 - Node.js 20.19 or newer and npm.
+- Python 3 and Git for the pinned Essentia static-library build.
 - Rust stable with Cargo.
 - CMake 3.24 or newer.
 - A C++20 compiler.
@@ -75,10 +76,13 @@ npm run dev
 
 The native build script performs four deterministic steps:
 
-1. Configures `native/build/` with CMake.
-2. Builds `keyfinder-native`, the `keyfinder` CLI, and their unit tests.
-3. Reads the current Rust target triple.
-4. Copies the sidecar and CLI to
+1. Fetches and builds pinned, lightweight Essentia and Eigen dependencies into
+   the ignored `native/.dependencies/` cache. Essentia uses its bundled Kiss
+   FFT backend and does not duplicate the app's FFmpeg or TagLib loaders.
+2. Configures `native/build/` with CMake.
+3. Builds `keyfinder-native`, the `keyfinder` CLI, and their unit tests.
+4. Reads the current Rust target triple.
+5. Copies the sidecar and CLI to
    `src-tauri/binaries/keyfinder-native-<target-triple>` and
    `src-tauri/binaries/keyfinder-<target-triple>` for Tauri packaging.
 
@@ -90,6 +94,20 @@ owning batch window.
 The About view checks the repository's published release metadata through the
 GitHub latest-release API. A missing latest release is treated as “no published
 release” rather than as an application error.
+
+### BPM analysis
+
+The build helper pins Essentia to commit
+`b9fa6cb674ca43dfb94d28d293aeda441c6745db` and Eigen to 3.4.0. Essentia is
+built as a lightweight static library with its bundled Kiss FFT backend. The
+native decoder supplies mono 44.1 kHz samples directly, so Essentia's own audio
+loader dependencies are disabled.
+
+For predictable batch memory use, BPM detection examines at most the first
+eight minutes of a track and Essentia-enabled jobs run no more than two tracks
+concurrently. Key analysis still processes the complete track. Set
+`ESSENTIA_ROOT` to use an existing compatible static installation instead of
+the ignored build cache.
 
 ## Tests and checks
 
@@ -130,10 +148,11 @@ npm run build
 ```
 
 Release builds deliberately require `VCPKG_ROOT`. The pinned manifest builds
-FFmpeg 8.1.2, TagLib 2.3, FFTW 3.3.11, and the libkeyfinder 2.2.8 overlay as
-static sidecar dependencies. On Windows, use `VCPKG_TARGET_TRIPLET=x64-windows-static`;
+FFmpeg 8.1.2, TagLib 2.3, FFTW 3.3.11, Eigen 3.4.0, the libkeyfinder 2.2.8
+overlay, and the pinned Essentia source as static sidecar dependencies. On
+Windows, use `VCPKG_TARGET_TRIPLET=x64-windows-static`;
 the NSIS installer contains the Tauri application and its native sidecar and
-does not require Python, FFmpeg, TagLib, libkeyfinder, CMake, or vcpkg on the
+does not require Python, Essentia, FFmpeg, TagLib, libkeyfinder, CMake, or vcpkg on the
 user's computer. Windows itself supplies WebView2 on current supported releases,
 and the installer can bootstrap it where needed.
 
@@ -173,8 +192,11 @@ Error responses contain `error` and never `result`:
 {"version":1,"requestId":"health-1","error":{"code":"UNKNOWN_METHOD","message":"Unknown protocol method: example"}}
 ```
 
-Protocol operations are `health`, `expandFiles`, `startAnalysis`, `cancelJob`,
-and `writeTracks`. Jobs emit ordered `trackUpdated`, `trackProgress`,
+Protocol operations are `health`, `expandFiles`, `discoverLibraries`,
+`loadPlaylist`, `generateWaveform`, `startAnalysis`, `cancelJob`, and
+`writeTracks`. `generateWaveform` accepts an audio `path` plus 32–1024
+`points` and returns normalized full-track peaks for the playback UI. Jobs emit
+ordered `trackUpdated`, `trackProgress`,
 `jobProgress`, and `jobFinished` events. Protocol-level error codes include
 `INVALID_JSON`, `INVALID_REQUEST`, `INVALID_PARAMS`, `UNSUPPORTED_VERSION`,
 `UNKNOWN_METHOD`, and `INTERNAL_ERROR`; track-level errors carry a code, stage,

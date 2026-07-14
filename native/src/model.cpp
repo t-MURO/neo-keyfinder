@@ -84,9 +84,13 @@ nlohmann::json to_json(const Track& track) {
       {"detectedCode", track.detected_code},
       {"status", to_string(track.status)},
   };
+  value["initialBpm"] = track.initial_bpm ? nlohmann::json(*track.initial_bpm)
+                                           : nlohmann::json(nullptr);
   value["durationMs"] = track.duration_ms ? nlohmann::json(*track.duration_ms)
                                            : nlohmann::json(nullptr);
   value["detectedKey"] = track.detected_key ? nlohmann::json(*track.detected_key)
+                                             : nlohmann::json(nullptr);
+  value["detectedBpm"] = track.detected_bpm ? nlohmann::json(*track.detected_bpm)
                                              : nlohmann::json(nullptr);
   if (track.error) {
     value["error"] = {{"code", track.error->code},
@@ -111,11 +115,17 @@ Track track_from_json(const nlohmann::json& value) {
   track.initial_key = value.value("initialKey", "");
   track.detected_code = value.value("detectedCode", "");
   track.status = track_status_from_string(value.value("status", "pending"));
+  if (value.contains("initialBpm") && !value["initialBpm"].is_null()) {
+    track.initial_bpm = value["initialBpm"].get<double>();
+  }
   if (value.contains("durationMs") && !value["durationMs"].is_null()) {
     track.duration_ms = value["durationMs"].get<std::int64_t>();
   }
   if (value.contains("detectedKey") && !value["detectedKey"].is_null()) {
     track.detected_key = value["detectedKey"].get<int>();
+  }
+  if (value.contains("detectedBpm") && !value["detectedBpm"].is_null()) {
+    track.detected_bpm = value["detectedBpm"].get<double>();
   }
   if (value.contains("error") && value["error"].is_object()) {
     track.error = TrackError{value["error"].value("code", "UNKNOWN"),

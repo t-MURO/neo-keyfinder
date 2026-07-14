@@ -36,9 +36,11 @@ struct Track {
   std::string comment;
   std::string grouping;
   std::string initial_key;
+  std::optional<double> initial_bpm;
   std::optional<std::int64_t> duration_ms;
   std::optional<int> detected_key;
   std::string detected_code;
+  std::optional<double> detected_bpm;
   TrackStatus status{TrackStatus::pending};
   std::optional<TrackError> error;
 };

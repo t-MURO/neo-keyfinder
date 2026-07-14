@@ -24,9 +24,11 @@ export interface Track {
   comment: string;
   grouping: string;
   initialKey: string;
+  initialBpm: number | null;
   durationMs: number | null;
   detectedKey: number | null;
   detectedCode: string;
+  detectedBpm: number | null;
   status: TrackStatus;
   error: TrackError | null;
 }
@@ -37,6 +39,7 @@ export type NotationMode = "standard" | "custom" | "combined" | "djCombined";
 export interface Settings {
   schemaVersion: number;
   parallel: boolean;
+  bpmAnalysisEnabled: boolean;
   maxDurationMinutes: number;
   skipExisting: boolean;
   automaticWrites: boolean;
@@ -49,6 +52,7 @@ export interface Settings {
     comment: OutputMode;
     grouping: OutputMode;
     initialKey: OutputMode;
+    bpm: OutputMode;
     filename: OutputMode;
   };
   delimiter: string;

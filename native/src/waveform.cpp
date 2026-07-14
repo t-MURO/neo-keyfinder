@@ -1,7 +1,8 @@
-#include "keyfinder/analyzer.hpp"
+#include "keyfinder/waveform.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
@@ -17,11 +18,7 @@ extern "C" {
 #include <libswresample/swresample.h>
 }
 
-#include <keyfinder/audiodata.h>
-#include <keyfinder/keyfinder.h>
-
 #include "keyfinder/model.hpp"
-#include "keyfinder/bpm_analyzer.hpp"
 
 namespace keyfinder::domain {
 namespace {
@@ -41,30 +38,61 @@ struct FormatDeleter {
     if (context != nullptr) avformat_close_input(&context);
   }
 };
-
 struct CodecDeleter {
   void operator()(AVCodecContext* context) const { avcodec_free_context(&context); }
 };
-
 struct FrameDeleter {
   void operator()(AVFrame* frame) const { av_frame_free(&frame); }
 };
-
 struct PacketDeleter {
   void operator()(AVPacket* packet) const { av_packet_free(&packet); }
 };
-
 struct SwrDeleter {
   void operator()(SwrContext* context) const { swr_free(&context); }
 };
 
+std::vector<float> resize_envelope(const std::vector<float>& source,
+                                   std::size_t points) {
+  std::vector<float> result(points, 0.0F);
+  if (source.empty()) return result;
+
+  if (source.size() >= points) {
+    for (std::size_t point = 0; point < points; ++point) {
+      const auto begin = point * source.size() / points;
+      const auto end = std::max(begin + 1, (point + 1) * source.size() / points);
+      result[point] = *std::max_element(source.begin() + static_cast<std::ptrdiff_t>(begin),
+                                       source.begin() + static_cast<std::ptrdiff_t>(end));
+    }
+  } else if (source.size() == 1) {
+    std::fill(result.begin(), result.end(), source.front());
+  } else {
+    for (std::size_t point = 0; point < points; ++point) {
+      const double position = static_cast<double>(point) *
+                              static_cast<double>(source.size() - 1) /
+                              static_cast<double>(points - 1);
+      const auto left = static_cast<std::size_t>(position);
+      const auto right = std::min(left + 1, source.size() - 1);
+      const auto fraction = static_cast<float>(position - static_cast<double>(left));
+      result[point] = source[left] * (1.0F - fraction) + source[right] * fraction;
+    }
+  }
+
+  const float maximum = *std::max_element(result.begin(), result.end());
+  if (maximum <= 0.00001F) return result;
+  for (auto& peak : result) {
+    peak = std::pow(std::clamp(peak / maximum, 0.0F, 1.0F), 0.6F);
+  }
+  return result;
+}
+
 }  // namespace
 
-AnalysisResult analyze_file(const std::filesystem::path& path,
-                            unsigned int max_duration_minutes,
-                            bool analyze_bpm,
-                            const CancellationCheck& is_cancelled,
-                            const ProgressCallback& progress) {
+std::vector<float> generate_waveform(const std::filesystem::path& path,
+                                     std::size_t points) {
+  if (points < 32 || points > 1024) {
+    throw std::invalid_argument("Waveform point count must be between 32 and 1024");
+  }
+
   AVFormatContext* raw_format = nullptr;
   const auto encoded_path = path_to_utf8(path);
   require_ffmpeg(avformat_open_input(&raw_format, encoded_path.c_str(), nullptr, nullptr),
@@ -77,101 +105,75 @@ AnalysisResult analyze_file(const std::filesystem::path& path,
       format.get(), AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
   require_ffmpeg(stream_index, "Could not find an audio stream");
   AVStream* stream = format->streams[stream_index];
-
-  if (format->duration > 0) {
-    const auto maximum = static_cast<std::int64_t>(max_duration_minutes) * 60 * AV_TIME_BASE;
-    if (format->duration > maximum) {
-      throw std::runtime_error("Track duration exceeds the configured maximum");
-    }
-  }
-
   const AVCodec* codec = avcodec_find_decoder(stream->codecpar->codec_id);
   if (codec == nullptr) throw std::runtime_error("The audio codec is unsupported");
+
   std::unique_ptr<AVCodecContext, CodecDeleter> codec_context(avcodec_alloc_context3(codec));
   if (!codec_context) throw std::runtime_error("Could not allocate an audio decoder");
   require_ffmpeg(avcodec_parameters_to_context(codec_context.get(), stream->codecpar),
                  "Could not configure the audio decoder");
   require_ffmpeg(avcodec_open2(codec_context.get(), codec, nullptr),
                  "Could not open the audio decoder");
-
   if (codec_context->ch_layout.nb_channels <= 0 || codec_context->sample_rate <= 0) {
     throw std::runtime_error("The audio stream has invalid channel or sample-rate data");
   }
 
-  constexpr int kAnalysisSampleRate = 44100;
-  AVChannelLayout analysis_layout = AV_CHANNEL_LAYOUT_MONO;
+  constexpr int kWaveformSampleRate = 8000;
+  constexpr int kWaveformChannels = 2;
+  constexpr std::size_t kFramesPerPeak = 256;
+  AVChannelLayout waveform_layout = AV_CHANNEL_LAYOUT_STEREO;
   SwrContext* raw_resampler = nullptr;
-  require_ffmpeg(swr_alloc_set_opts2(&raw_resampler, &analysis_layout,
-                                     AV_SAMPLE_FMT_S16, kAnalysisSampleRate,
+  require_ffmpeg(swr_alloc_set_opts2(&raw_resampler, &waveform_layout,
+                                     AV_SAMPLE_FMT_S16, kWaveformSampleRate,
                                      &codec_context->ch_layout, codec_context->sample_fmt,
                                      codec_context->sample_rate, 0, nullptr),
-                 "Could not create the audio resampler");
+                 "Could not create the waveform resampler");
   std::unique_ptr<SwrContext, SwrDeleter> resampler(raw_resampler);
-  require_ffmpeg(swr_init(resampler.get()), "Could not initialize the audio resampler");
+  require_ffmpeg(swr_init(resampler.get()), "Could not initialize the waveform resampler");
 
   std::unique_ptr<AVPacket, PacketDeleter> packet(av_packet_alloc());
   std::unique_ptr<AVFrame, FrameDeleter> frame(av_frame_alloc());
   if (!packet || !frame) throw std::runtime_error("Could not allocate decode buffers");
 
-  KeyFinder::Workspace workspace;
-  KeyFinder::KeyFinder analyzer;
-  std::uint64_t decoded_sample_count = 0;
-  constexpr std::size_t kMaximumBpmSamples =
-      static_cast<std::size_t>(kAnalysisSampleRate) * 60U * 8U;
-  const bool collect_bpm = analyze_bpm && bpm_detection_available();
-  std::vector<float> bpm_samples;
-  if (collect_bpm) {
-    const auto duration_samples = format->duration > 0
-                                      ? av_rescale_rnd(format->duration,
-                                                       kAnalysisSampleRate,
-                                                       AV_TIME_BASE, AV_ROUND_UP)
-                                      : kAnalysisSampleRate * 60;
-    bpm_samples.reserve(std::min<std::size_t>(
-        kMaximumBpmSamples, static_cast<std::size_t>(duration_samples)));
-  }
+  std::vector<float> block_peaks;
+  float current_peak = 0.0F;
+  std::size_t current_frames = 0;
+  std::uint64_t decoded_frames = 0;
 
   auto consume_frames = [&]() {
     while (true) {
       const int receive = avcodec_receive_frame(codec_context.get(), frame.get());
       if (receive == AVERROR(EAGAIN) || receive == AVERROR_EOF) return;
-      // FFmpeg can recover from an isolated damaged frame when subsequent packets
-      // are valid. Treating AVERROR_INVALIDDATA as fatal rejects otherwise playable
-      // tracks (notably FLAC files with a single corrupt frame).
       if (receive == AVERROR_INVALIDDATA) {
         av_frame_unref(frame.get());
         return;
       }
       require_ffmpeg(receive, "Could not decode an audio frame");
-      if (is_cancelled()) throw std::runtime_error("ANALYSIS_CANCELLED");
 
       const int capacity = av_rescale_rnd(
           swr_get_delay(resampler.get(), codec_context->sample_rate) + frame->nb_samples,
-          kAnalysisSampleRate, codec_context->sample_rate, AV_ROUND_UP);
-      std::vector<std::int16_t> samples(static_cast<std::size_t>(capacity));
+          kWaveformSampleRate, codec_context->sample_rate, AV_ROUND_UP);
+      std::vector<std::int16_t> samples(
+          static_cast<std::size_t>(capacity) * kWaveformChannels);
       std::array<std::uint8_t*, 1> output{
           reinterpret_cast<std::uint8_t*>(samples.data())};
       const int converted = swr_convert(resampler.get(), output.data(), capacity,
-                                        frame->extended_data,
-                                        frame->nb_samples);
+                                        frame->extended_data, frame->nb_samples);
       require_ffmpeg(converted, "Could not normalize decoded audio");
-      samples.resize(static_cast<std::size_t>(converted));
-      decoded_sample_count += samples.size();
-      if (collect_bpm && bpm_samples.size() < kMaximumBpmSamples) {
-        const auto remaining = kMaximumBpmSamples - bpm_samples.size();
-        const auto count = std::min(remaining, samples.size());
-        for (std::size_t index = 0; index < count; ++index) {
-          bpm_samples.push_back(static_cast<float>(samples[index]) / 32768.0F);
+      decoded_frames += static_cast<std::uint64_t>(converted);
+
+      for (int sample = 0; sample < converted; ++sample) {
+        const auto offset = static_cast<std::size_t>(sample) * kWaveformChannels;
+        const int left = std::abs(static_cast<int>(samples[offset]));
+        const int right = std::abs(static_cast<int>(samples[offset + 1]));
+        current_peak = std::max(
+            current_peak, static_cast<float>(std::max(left, right)) / 32768.0F);
+        if (++current_frames == kFramesPerPeak) {
+          block_peaks.push_back(current_peak);
+          current_peak = 0.0F;
+          current_frames = 0;
         }
       }
-
-      KeyFinder::AudioData audio;
-      audio.setFrameRate(kAnalysisSampleRate);
-      audio.setChannels(1);
-      audio.addToSampleCount(static_cast<unsigned int>(samples.size()));
-      for (std::size_t index = 0; index < samples.size(); ++index) {
-        audio.setSample(static_cast<unsigned int>(index), samples[index]);
-      }
-      analyzer.progressiveChromagram(audio, workspace);
       av_frame_unref(frame.get());
     }
   };
@@ -199,33 +201,16 @@ AnalysisResult analyze_file(const std::filesystem::path& path,
     }
     require_ffmpeg(read, "Could not read an audio packet");
     consecutive_read_errors = 0;
-
-    if (is_cancelled()) throw std::runtime_error("ANALYSIS_CANCELLED");
-    if (packet->stream_index == stream_index) {
-      if (submit_packet(packet.get(), "Could not submit an audio packet")) {
-        consume_frames();
-      }
-      if (packet->pts != AV_NOPTS_VALUE && stream->duration > 0) {
-        progress(std::clamp(static_cast<double>(packet->pts) /
-                                static_cast<double>(stream->duration),
-                            0.0, 1.0));
-      }
+    if (packet->stream_index == stream_index &&
+        submit_packet(packet.get(), "Could not submit an audio packet")) {
+      consume_frames();
     }
     av_packet_unref(packet.get());
   }
-
-  if (submit_packet(nullptr, "Could not flush the audio decoder")) {
-    consume_frames();
-  }
-  if (is_cancelled()) throw std::runtime_error("ANALYSIS_CANCELLED");
-  if (decoded_sample_count == 0) {
-    throw std::runtime_error("No decodable audio frames were found");
-  }
-
-  analyzer.finalChromagram(workspace);
-  progress(1.0);
-  return {static_cast<int>(analyzer.keyOfChromagram(workspace)),
-          detect_bpm(bpm_samples)};
+  if (submit_packet(nullptr, "Could not flush the audio decoder")) consume_frames();
+  if (current_frames > 0) block_peaks.push_back(current_peak);
+  if (decoded_frames == 0) throw std::runtime_error("No decodable audio frames were found");
+  return resize_envelope(block_peaks, points);
 }
 
 }  // namespace keyfinder::domain

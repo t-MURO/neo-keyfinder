@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { installVcpkgManifest, prepareEssentia } from "./build-essentia.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nativeRoot = join(root, "native");
@@ -18,6 +19,9 @@ const dependencyVariant = vcpkgRoot
   ? `build-${process.env.VCPKG_TARGET_TRIPLET || "vcpkg"}-${configuration.toLowerCase()}`
   : "build";
 const buildRoot = join(nativeRoot, dependencyVariant);
+const targetTriple = execFileSync("rustc", ["--print", "host-tuple"], {
+  encoding: "utf8",
+}).trim();
 
 if (release && !vcpkgRoot && process.env.NKF_ALLOW_SYSTEM_RELEASE_DEPS !== "1") {
   console.error(
@@ -42,6 +46,16 @@ try {
 mkdirSync(buildRoot, { recursive: true });
 mkdirSync(binariesRoot, { recursive: true });
 
+if (vcpkgRoot) {
+  installVcpkgManifest(vcpkgRoot, process.env.VCPKG_TARGET_TRIPLET);
+}
+const vcpkgEigen = process.env.VCPKG_TARGET_TRIPLET
+  ? join(root, "vcpkg_installed", process.env.VCPKG_TARGET_TRIPLET, "include", "eigen3")
+  : undefined;
+const architecture = process.env.VCPKG_TARGET_TRIPLET?.split("-")[0] ||
+  (targetTriple.startsWith("aarch64") ? "arm64" : targetTriple.startsWith("x86_64") ? "x64" : process.arch);
+const essentiaRoot = prepareEssentia({ architecture, eigenInclude: vcpkgEigen });
+
 const configureArguments = [
   "-S",
   nativeRoot,
@@ -49,6 +63,7 @@ const configureArguments = [
   buildRoot,
   `-DCMAKE_BUILD_TYPE=${configuration}`,
   "-DNKF_BUILD_TESTS=ON",
+  `-DESSENTIA_ROOT=${essentiaRoot}`,
 ];
 if (vcpkgRoot) {
   configureArguments.push(
@@ -79,9 +94,6 @@ if (!source || !cliSource) {
   throw new Error(`Native engine and CLI were not produced in ${buildRoot}`);
 }
 
-const targetTriple = execFileSync("rustc", ["--print", "host-tuple"], {
-  encoding: "utf8",
-}).trim();
 const destination = join(
   binariesRoot,
   `keyfinder-native-${targetTriple}${extension}`,

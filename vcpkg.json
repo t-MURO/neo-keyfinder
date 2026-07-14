@@ -9,6 +9,7 @@
       "default-features": false,
       "features": ["avcodec", "avformat", "swresample"]
     },
+    "eigen3",
     "libkeyfinder",
     "taglib"
   ]

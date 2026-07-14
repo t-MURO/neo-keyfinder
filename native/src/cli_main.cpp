@@ -101,14 +101,14 @@ int main(int argc, char* argv[]) {
     };
     keyfinder::domain::read_metadata(track);
     const auto analysis = keyfinder::domain::analyze_file(
-        path, options.max_duration, [] { return false; }, [](double) {});
+        path, options.max_duration, false, [] { return false; }, [](double) {});
     track.detected_key = analysis.key;
     track.detected_code = keyfinder::domain::key_code(analysis.key, settings);
     track.status = keyfinder::domain::TrackStatus::completed;
     std::cout << track.detected_code << '\n';
 
     if (options.write) {
-      const auto written = keyfinder::domain::write_detected_key(std::move(track), settings);
+      const auto written = keyfinder::domain::write_analysis_results(std::move(track), settings);
       if (written.error && written.error->stage == "write") {
         std::cerr << "keyfinder: " << written.error->message << '\n';
         return kWriteError;

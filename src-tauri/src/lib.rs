@@ -39,12 +39,18 @@ async fn start_analysis(
     tracks: Value,
     settings: Value,
     owner: String,
+    write_authorization: bool,
     engine: tauri::State<'_, NativeBridge>,
 ) -> Result<Value, String> {
     engine
         .call(
             "startAnalysis",
-            json!({"tracks": tracks, "settings": settings, "owner": owner}),
+            json!({
+                "tracks": tracks,
+                "settings": settings,
+                "owner": owner,
+                "writeAuthorization": write_authorization
+            }),
             Duration::from_secs(10),
         )
         .await
@@ -146,6 +152,65 @@ async fn pick_audio_folder() -> Result<Option<String>, String> {
         .map(|folder| folder.path().to_string_lossy().into_owned()))
 }
 
+fn is_supported_audio_file(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("mp3" | "m4a" | "mp4" | "wma" | "flac" | "aif" | "aiff" | "wav")
+    )
+}
+
+fn canonical_audio_path(path: &str) -> Result<std::path::PathBuf, String> {
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|error| format!("Could not open the audio file: {error}"))?;
+    if !canonical.is_file() || !is_supported_audio_file(&canonical) {
+        return Err("Only supported audio files can be opened.".into());
+    }
+    Ok(canonical)
+}
+
+#[tauri::command]
+fn prepare_audio_playback(
+    desktop: tauri::State<'_, DesktopApp>,
+    path: String,
+) -> Result<String, String> {
+    let canonical = canonical_audio_path(&path)?;
+    desktop
+        .0
+        .asset_protocol_scope()
+        .allow_file(&canonical)
+        .map_err(|error| format!("Could not authorize audio playback: {error}"))?;
+    Ok(canonical.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn reveal_audio_file(desktop: tauri::State<'_, DesktopApp>, path: String) -> Result<(), String> {
+    let canonical = canonical_audio_path(&path)?;
+    desktop
+        .0
+        .opener()
+        .reveal_item_in_dir(&canonical)
+        .map_err(|error| format!("Could not reveal the audio file: {error}"))
+}
+
+#[tauri::command]
+async fn get_audio_waveform(
+    path: String,
+    points: u32,
+    engine: tauri::State<'_, NativeBridge>,
+) -> Result<Value, String> {
+    let canonical = canonical_audio_path(&path)?;
+    engine
+        .call(
+            "generateWaveform",
+            json!({"path": canonical.to_string_lossy(), "points": points}),
+            Duration::from_secs(120),
+        )
+        .await
+}
+
 #[tauri::command]
 async fn pick_playlist_file() -> Result<Option<String>, String> {
     Ok(rfd::AsyncFileDialog::new()
@@ -159,9 +224,9 @@ async fn pick_playlist_file() -> Result<Option<String>, String> {
 fn create_batch_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<String, String> {
     let label = format!("batch-{}", NEXT_WINDOW_ID.fetch_add(1, Ordering::Relaxed));
     tauri::WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
-        .title("Neo KeyFinder")
+        .title("NeoKeyAndBpmFinder")
         .inner_size(1120.0, 760.0)
-        .min_inner_size(720.0, 560.0)
+        .min_inner_size(560.0, 560.0)
         .center()
         .build()
         .map_err(|error| format!("Could not open a batch window: {error}"))?;
@@ -176,7 +241,7 @@ async fn new_batch_window(app: tauri::State<'_, DesktopApp>) -> Result<String, S
 #[tauri::command]
 fn get_app_info() -> Value {
     json!({
-        "name": "Neo KeyFinder",
+        "name": "NeoKeyAndBpmFinder",
         "version": env!("CARGO_PKG_VERSION"),
         "projectUrl": PROJECT_URL,
         "releaseApiUrl": format!("{PROJECT_URL}/releases/latest"),
@@ -187,7 +252,7 @@ fn get_app_info() -> Value {
 #[tauri::command]
 fn open_project_url(app: tauri::State<'_, DesktopApp>, url: String) -> Result<(), String> {
     if url != PROJECT_URL && !url.starts_with(&format!("{PROJECT_URL}/")) {
-        return Err("Only Neo KeyFinder project links can be opened".into());
+        return Err("Only NeoKeyAndBpmFinder project links can be opened".into());
     }
     app.0
         .opener()
@@ -232,7 +297,7 @@ fn install_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
         .build()?;
     let help = SubmenuBuilder::new(app, "Help")
         .text("check-updates", "Check for Updates…")
-        .text("about-keyfinder", "About Neo KeyFinder")
+        .text("about-keyfinder", "About NeoKeyAndBpmFinder")
         .build()?;
     let menu = MenuBuilder::new(app)
         .items(&[&file, &edit, &window, &help])
@@ -254,6 +319,9 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         save_settings,
         pick_audio_files,
         pick_audio_folder,
+        prepare_audio_playback,
+        reveal_audio_file,
+        get_audio_waveform,
         pick_playlist_file,
         new_batch_window,
         get_app_info,
@@ -322,5 +390,5 @@ pub fn run() {
             }),
     )
     .run(tauri::generate_context!())
-    .expect("failed to run Neo KeyFinder");
+    .expect("failed to run NeoKeyAndBpmFinder");
 }

@@ -1,9 +1,12 @@
 # Third-party notices
 
-Neo KeyFinder is distributed under GPL-3.0-or-later. It builds on open-source
+NeoKeyAndBpmFinder is distributed under AGPL-3.0-or-later. It builds on open-source
 components whose own copyright notices and license texts remain authoritative:
 
 - libKeyFinder — GPL-3.0
+- Essentia — AGPL-3.0-or-later
+- Eigen — MPL-2.0
+- Kiss FFT (bundled by Essentia) — BSD-3-Clause
 - FFmpeg — LGPL-2.1-or-later/GPL components according to the selected build
 - TagLib — LGPL-2.1-or-later/MPL-1.1
 - pugixml — MIT

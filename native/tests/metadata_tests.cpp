@@ -98,6 +98,15 @@ int main() {
   const auto temporary =
       std::filesystem::temp_directory_path() / ("neo-keyfinder-metadata-" + suffix);
   std::filesystem::create_directories(temporary);
+  const auto bpm_target = temporary / "bpm.flac";
+  std::filesystem::copy_file(fixture("readTags", "flac.flac"), bpm_target);
+  const auto bpm_mutation =
+      keyfinder::domain::write_metadata_field(bpm_target, "BPM", "123.5");
+  expect(bpm_mutation.changed, "FLAC writes BPM: " + bpm_mutation.error);
+  const auto bpm_track = read(bpm_target);
+  expect(bpm_track.initial_bpm.has_value(), "FLAC reads initial BPM");
+  expect(*bpm_track.initial_bpm == 123.5, "FLAC initial BPM value");
+
   for (const auto& entry :
        std::filesystem::directory_iterator(fixture("writeTags", ""))) {
     if (entry.is_regular_file()) expect_write_round_trip(entry.path(), temporary);

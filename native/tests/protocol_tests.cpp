@@ -9,6 +9,8 @@
 #include <nlohmann/json.hpp>
 
 #include "keyfinder/engine.hpp"
+#include "keyfinder/metadata.hpp"
+#include "keyfinder/model.hpp"
 #include "keyfinder/protocol.hpp"
 
 namespace {
@@ -110,6 +112,55 @@ int main() {
     expect(analyzing_order == std::vector<std::string>{"first", "second", "third"},
            "parallel analysis starts tracks in request order");
   }
+
+  const auto suffix = std::to_string(
+      std::chrono::steady_clock::now().time_since_epoch().count());
+  const auto temporary =
+      std::filesystem::temp_directory_path() / ("neo-keyfinder-write-guard-" + suffix);
+  std::filesystem::create_directories(temporary);
+  const auto guarded_file = temporary / "guarded.wav";
+  std::filesystem::copy_file(
+      std::filesystem::path(NKF_LEGACY_FIXTURES_DIR) / "readTags/wav.wav",
+      guarded_file);
+  keyfinder::domain::Track guarded_track;
+  guarded_track.id = "guarded";
+  guarded_track.path = std::filesystem::canonical(guarded_file);
+  guarded_track.filename = guarded_file.filename().string();
+  keyfinder::domain::read_metadata(guarded_track);
+  const auto original_comment = guarded_track.comment;
+
+  std::mutex guarded_mutex;
+  std::condition_variable guarded_condition;
+  bool guarded_finished = false;
+  {
+    keyfinder::domain::Engine engine([&](const nlohmann::json& event) {
+      std::lock_guard lock(guarded_mutex);
+      if (event.value("event", "") == "jobFinished") {
+        guarded_finished = true;
+        guarded_condition.notify_all();
+      }
+    });
+    const auto response = engine.dispatch(keyfinder::protocol::Request{
+        1,
+        "guarded-job",
+        "startAnalysis",
+        {{"owner", "batch-guarded"},
+         {"tracks", nlohmann::json::array({keyfinder::domain::to_json(guarded_track)})},
+         {"settings",
+          {{"automaticWrites", true},
+           {"outputs", {{"comment", "prepend"}}}}}}});
+    expect(response["result"]["jobId"].is_string(),
+           "guarded analysis starts");
+    std::unique_lock lock(guarded_mutex);
+    expect(guarded_condition.wait_for(lock, std::chrono::seconds(5),
+                                      [&] { return guarded_finished; }),
+           "guarded analysis finishes within the test timeout");
+  }
+  auto reread = guarded_track;
+  keyfinder::domain::read_metadata(reread);
+  expect(reread.comment == original_comment,
+         "analysis cannot write comments without explicit authorization");
+  std::filesystem::remove_all(temporary);
 
   return 0;
 }

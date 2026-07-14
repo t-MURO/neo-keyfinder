@@ -26,6 +26,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux desktop build dependencies
         if: runner.os == 'Linux'
@@ -66,6 +69,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - uses: dtolnay/rust-toolchain@stable
       - run: |
           git clone https://github.com/microsoft/vcpkg.git "${env:VCPKG_ROOT}"
@@ -92,6 +98,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - uses: dtolnay/rust-toolchain@stable
       - run: |
           sudo apt-get update
@@ -121,6 +130,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin

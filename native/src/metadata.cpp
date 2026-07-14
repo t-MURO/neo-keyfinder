@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <memory>
 #include <system_error>
 
@@ -41,6 +42,24 @@ std::string first_property(const TagLib::PropertyMap& properties,
     if (!value.empty()) return value;
   }
   return {};
+}
+
+std::optional<double> parse_bpm(const std::string& value) {
+  if (value.empty()) return std::nullopt;
+  try {
+    std::size_t consumed = 0;
+    const auto bpm = std::stod(value, &consumed);
+    while (consumed < value.size() &&
+           std::isspace(static_cast<unsigned char>(value[consumed]))) {
+      ++consumed;
+    }
+    if (consumed != value.size() || !std::isfinite(bpm) || bpm <= 0) {
+      return std::nullopt;
+    }
+    return bpm;
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
 }
 
 TagLib::FileName filename(const std::filesystem::path& path) {
@@ -89,6 +108,15 @@ std::string dictionary_value(const AVDictionary* dictionary, const char* key) {
   return entry && entry->value ? entry->value : "";
 }
 
+std::string first_dictionary_value(const AVDictionary* dictionary,
+                                   std::initializer_list<const char*> keys) {
+  for (const auto* key : keys) {
+    const auto value = dictionary_value(dictionary, key);
+    if (!value.empty()) return value;
+  }
+  return {};
+}
+
 bool read_ffmpeg_metadata(Track& track) {
   AVFormatContext* raw = nullptr;
   const auto path = path_to_utf8(track.path);
@@ -105,6 +133,8 @@ bool read_ffmpeg_metadata(Track& track) {
   if (track.initial_key.empty()) {
     track.initial_key = dictionary_value(input->metadata, "initial_key");
   }
+  track.initial_bpm = parse_bpm(first_dictionary_value(
+      input->metadata, {"bpm", "tbpm", "tmpo", "tempo"}));
   if (input->duration != AV_NOPTS_VALUE) {
     track.duration_ms = input->duration / (AV_TIME_BASE / 1000);
   }
@@ -118,6 +148,7 @@ std::string ffmpeg_field(const std::string& field) {
   if (field == "COMMENT") return "comment";
   if (field == "GROUPING") return "grouping";
   if (field == "INITIALKEY") return "initialkey";
+  if (field == "BPM") return "tmpo";
   return {};
 }
 
@@ -261,6 +292,8 @@ void read_metadata(Track& track) {
         properties, {"GROUPING", "WORK", "CONTENTGROUP",
                      "WM/CONTENTGROUPDESCRIPTION"});
     track.initial_key = property(properties, "INITIALKEY");
+    track.initial_bpm = parse_bpm(first_property(
+        properties, {"BPM", "TBPM", "TEMPO", "WM/BEATSPERMINUTE"}));
     if (const auto* audio = file->audioProperties(); audio != nullptr) {
       track.duration_ms = audio->lengthInMilliseconds();
     }

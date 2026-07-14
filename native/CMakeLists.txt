@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.24)
 project(
   neo_keyfinder_native
   VERSION 0.1.0
-  DESCRIPTION "Native engine for the Neo KeyFinder rebuild"
+  DESCRIPTION "Native engine for the NeoKeyAndBpmFinder rebuild"
   LANGUAGES CXX
 )
 
@@ -15,6 +15,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 
 option(NKF_BUILD_TESTS "Build native engine tests" ON)
+option(NKF_ENABLE_ESSENTIA "Enable Essentia BPM detection when available" ON)
+set(ESSENTIA_ROOT "" CACHE PATH "Root of a static Essentia installation")
 
 # Pinned to the commit behind nlohmann/json v3.12.0. Native dependencies must
 # never follow a moving branch.
@@ -50,6 +52,36 @@ pkg_check_modules(
   libswresample
 )
 
+set(NKF_HAS_ESSENTIA OFF)
+if(NKF_ENABLE_ESSENTIA)
+  find_path(
+    ESSENTIA_INCLUDE_DIR
+    NAMES essentia/essentia.h
+    HINTS "${ESSENTIA_ROOT}/include" "$ENV{ESSENTIA_ROOT}/include"
+  )
+  find_library(
+    ESSENTIA_LIBRARY
+    NAMES essentia
+    HINTS "${ESSENTIA_ROOT}/lib" "$ENV{ESSENTIA_ROOT}/lib"
+  )
+  find_path(
+    EIGEN3_INCLUDE_DIR
+    NAMES unsupported/Eigen/CXX11/Tensor
+    HINTS
+      "${ESSENTIA_ROOT}/include"
+      "$ENV{ESSENTIA_ROOT}/include"
+      "/opt/homebrew/include/eigen3"
+      "/usr/local/include/eigen3"
+      "/usr/include/eigen3"
+  )
+  if(ESSENTIA_INCLUDE_DIR AND ESSENTIA_LIBRARY AND EIGEN3_INCLUDE_DIR)
+    set(NKF_HAS_ESSENTIA ON)
+    message(STATUS "Essentia BPM detection enabled: ${ESSENTIA_LIBRARY}")
+  else()
+    message(STATUS "Essentia not found; BPM detection will be unavailable")
+  endif()
+endif()
+
 # CMake's FindPkgConfig can duplicate the value half of repeated macOS
 # `-framework Name` pairs as standalone link options. The framework libraries
 # themselves remain correctly represented in INTERFACE_LINK_LIBRARIES.
@@ -59,6 +91,7 @@ endif()
 
 add_library(keyfinder_domain STATIC
   src/analyzer.cpp
+  src/bpm_analyzer.cpp
   src/file_scanner.cpp
   src/health.cpp
   src/job_manager.cpp
@@ -67,13 +100,22 @@ add_library(keyfinder_domain STATIC
   src/output_rules.cpp
   src/playlists.cpp
   src/settings.cpp
+  src/waveform.cpp
   src/writer.cpp
 )
 target_include_directories(keyfinder_domain PUBLIC include)
 target_compile_definitions(
   keyfinder_domain
-  PUBLIC NKF_ENGINE_VERSION="${PROJECT_VERSION}"
+  PUBLIC
+    NKF_ENGINE_VERSION="${PROJECT_VERSION}"
+    NKF_HAS_ESSENTIA=$<BOOL:${NKF_HAS_ESSENTIA}>
 )
+if(NKF_HAS_ESSENTIA)
+  target_include_directories(
+    keyfinder_domain
+    SYSTEM PRIVATE "${ESSENTIA_INCLUDE_DIR}" "${EIGEN3_INCLUDE_DIR}"
+  )
+endif()
 target_link_libraries(
   keyfinder_domain
   PUBLIC
@@ -84,6 +126,9 @@ target_link_libraries(
     PkgConfig::KEYFINDER
     PkgConfig::TAGLIB
 )
+if(NKF_HAS_ESSENTIA)
+  target_link_libraries(keyfinder_domain PRIVATE "${ESSENTIA_LIBRARY}")
+endif()
 
 add_library(keyfinder_protocol STATIC
   src/engine.cpp
@@ -121,6 +166,10 @@ if(NKF_BUILD_TESTS)
 
   add_executable(protocol-tests tests/protocol_tests.cpp)
   target_link_libraries(protocol-tests PRIVATE keyfinder_protocol)
+  target_compile_definitions(
+    protocol-tests
+    PRIVATE NKF_LEGACY_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../is_KeyFinder/test-resources"
+  )
   add_test(NAME protocol-tests COMMAND protocol-tests)
 
   add_executable(domain-tests tests/health_tests.cpp)

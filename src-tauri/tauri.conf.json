@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Neo KeyFinder",
+  "productName": "NeoKeyAndBpmFinder",
   "version": "0.1.0",
   "identifier": "app.keyfinder.neo",
   "build": {
@@ -13,10 +13,10 @@
     "windows": [
       {
         "label": "main",
-        "title": "Neo KeyFinder",
+        "title": "NeoKeyAndBpmFinder",
         "width": 1120,
         "height": 760,
-        "minWidth": 720,
+        "minWidth": 560,
         "minHeight": 560,
         "center": true,
         "resizable": true,
@@ -24,7 +24,11 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.github.com; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self'"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.github.com; img-src 'self' asset: http://asset.localhost; media-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
     }
   },
   "bundle": {
@@ -35,8 +39,8 @@
       "binaries/keyfinder"
     ],
     "category": "Music",
-    "shortDescription": "Estimate musical keys for harmonic mixing",
-    "longDescription": "Neo KeyFinder estimates the musical key of audio tracks to support harmonic mixing.",
-    "copyright": "GPL-3.0-or-later"
+    "shortDescription": "Estimate musical keys and BPM for harmonic mixing",
+    "longDescription": "NeoKeyAndBpmFinder estimates the musical key and BPM of audio tracks to support harmonic mixing.",
+    "copyright": "AGPL-3.0-or-later"
   }
 }

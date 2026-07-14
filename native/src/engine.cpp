@@ -9,6 +9,7 @@
 #include "keyfinder/health.hpp"
 #include "keyfinder/playlists.hpp"
 #include "keyfinder/settings.hpp"
+#include "keyfinder/waveform.hpp"
 #include "keyfinder/writer.hpp"
 
 namespace keyfinder::domain {
@@ -84,13 +85,42 @@ nlohmann::json Engine::dispatch(const protocol::Request& request) {
         request.request_id, {{"playlists", playlists}, {"warnings", warnings}});
   }
 
+  if (request.method == "generateWaveform") {
+    const auto path = request.params.value("path", "");
+    if (path.empty()) {
+      throw protocol::ProtocolError(request.request_id, "INVALID_PARAMS",
+                                    "path must be a non-empty string");
+    }
+    if (!request.params.contains("points") ||
+        !request.params["points"].is_number_integer()) {
+      throw protocol::ProtocolError(request.request_id, "INVALID_PARAMS",
+                                    "points must be an integer");
+    }
+    const auto points = request.params["points"].get<int>();
+    if (points < 32 || points > 1024) {
+      throw protocol::ProtocolError(request.request_id, "INVALID_PARAMS",
+                                    "points must be between 32 and 1024");
+    }
+    try {
+      return protocol::success_envelope(
+          request.request_id,
+          {{"peaks", generate_waveform(path_from_utf8(path),
+                                         static_cast<std::size_t>(points))}});
+    } catch (const std::exception& error) {
+      throw protocol::ProtocolError(request.request_id, "WAVEFORM_FAILED", error.what());
+    }
+  }
+
   if (request.method == "startAnalysis") {
     require_array(request.params, "tracks", request.request_id);
     std::vector<Track> tracks;
     for (const auto& value : request.params["tracks"]) {
       tracks.push_back(track_from_json(value));
     }
-    const auto settings = settings_from_json(request.params.value("settings", nlohmann::json::object()));
+    auto settings = settings_from_json(request.params.value("settings", nlohmann::json::object()));
+    settings.automatic_writes =
+        settings.automatic_writes &&
+        request.params.value("writeAuthorization", false);
     const auto owner = request.params.value("owner", "");
     const auto job_id = jobs_.start(std::move(tracks), settings, owner);
     return protocol::success_envelope(request.request_id, {{"jobId", job_id}});
@@ -111,7 +141,7 @@ nlohmann::json Engine::dispatch(const protocol::Request& request) {
     const auto settings = settings_from_json(request.params.value("settings", nlohmann::json::object()));
     nlohmann::json tracks = nlohmann::json::array();
     for (const auto& value : request.params["tracks"]) {
-      tracks.push_back(to_json(write_detected_key(track_from_json(value), settings)));
+      tracks.push_back(to_json(write_analysis_results(track_from_json(value), settings)));
     }
     return protocol::success_envelope(request.request_id, {{"tracks", tracks}});
   }

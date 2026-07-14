@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -10,6 +10,10 @@ vi.mock("./lib/native-engine", () => ({
   loadSettings: vi.fn(),
   saveSettings: vi.fn(),
   pickAudioFiles: vi.fn(),
+  pickAudioFolder: vi.fn(),
+  prepareAudioPlayback: vi.fn(),
+  revealTrackInFolder: vi.fn(),
+  getAudioWaveform: vi.fn(),
   expandFiles: vi.fn(),
   startAnalysis: vi.fn(),
   cancelAnalysis: vi.fn(),
@@ -26,14 +30,15 @@ vi.mock("./lib/native-engine", () => ({
 }));
 
 const settings: Settings = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   parallel: true,
+  bpmAnalysisEnabled: true,
   maxDurationMinutes: 60,
   skipExisting: false,
   automaticWrites: false,
   extensionFilterEnabled: false,
   extensions: ["mp3", "flac", "wav"],
-  outputs: { title: "none", artist: "none", album: "none", comment: "prepend", grouping: "none", initialKey: "none", filename: "none" },
+  outputs: { title: "none", artist: "none", album: "none", comment: "prepend", grouping: "none", initialKey: "none", bpm: "none", filename: "none" },
   delimiter: " - ",
   notation: "standard",
   customCodes: Array.from({ length: 25 }, () => ""),
@@ -58,37 +63,61 @@ const track: Track = {
   comment: "",
   grouping: "",
   initialKey: "",
+  initialBpm: 123.5,
   durationMs: 452000,
   detectedKey: null,
   detectedCode: "",
+  detectedBpm: null,
   status: "ready",
   error: null,
 };
 
 let eventHandler: ((event: NativeEvent) => void) | undefined;
+let fileDropHandler: ((paths: string[]) => void) | undefined;
+let fileDropHoverHandler: ((hovering: boolean) => void) | undefined;
 
 afterEach(cleanup);
 
 describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    const storedValues = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => storedValues.get(key) ?? null,
+        setItem: (key: string, value: string) => storedValues.set(key, value),
+        removeItem: (key: string) => storedValues.delete(key),
+        clear: () => storedValues.clear(),
+      },
+    });
     eventHandler = undefined;
+    fileDropHandler = undefined;
+    fileDropHoverHandler = undefined;
     vi.mocked(native.getNativeHealth).mockResolvedValue({ service: "keyfinder-native", engineVersion: "0.1.0", protocolVersion: 1 });
     vi.mocked(native.loadSettings).mockResolvedValue(settings);
     vi.mocked(native.saveSettings).mockResolvedValue();
     vi.mocked(native.pickAudioFiles).mockResolvedValue([]);
+    vi.mocked(native.pickAudioFolder).mockResolvedValue(null);
+    vi.mocked(native.prepareAudioPlayback).mockResolvedValue("asset://localhost/audio.flac");
+    vi.mocked(native.revealTrackInFolder).mockResolvedValue();
+    vi.mocked(native.getAudioWaveform).mockResolvedValue([0.2, 0.8, 0.4, 1]);
     vi.mocked(native.pickPlaylistFile).mockResolvedValue(null);
     vi.mocked(native.discoverLibraries).mockResolvedValue({ playlists: [], warnings: [] });
     vi.mocked(native.newBatchWindow).mockResolvedValue("batch-1");
     vi.mocked(native.getAppInfo).mockResolvedValue({
-      name: "Neo KeyFinder",
+      name: "NeoKeyAndBpmFinder",
       version: "0.1.0",
       projectUrl: "https://github.com/t-MURO/neo-keyfinder",
       releaseApiUrl: "https://github.com/t-MURO/neo-keyfinder/releases/latest",
       releaseMetadataUrl: "https://api.github.com/repos/t-MURO/neo-keyfinder/releases/latest",
     });
     vi.mocked(native.listenMenuActions).mockResolvedValue(() => undefined);
-    vi.mocked(native.listenForFileDrops).mockResolvedValue(() => undefined);
+    vi.mocked(native.listenForFileDrops).mockImplementation(async (handler, setHovering) => {
+      fileDropHandler = handler;
+      fileDropHoverHandler = setHovering;
+      return () => undefined;
+    });
     vi.mocked(native.listenNativeEvents).mockImplementation(async (handler) => {
       eventHandler = handler;
       return () => undefined;
@@ -101,7 +130,9 @@ describe("App", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Checking engine");
     expect(await screen.findByText("Engine online")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Build your first batch" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Choose audio files" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add files" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add folder" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
   });
 
   it("adds picker results and exposes metadata in the batch table", async () => {
@@ -111,12 +142,32 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByText("Engine online");
-    await user.click(screen.getByRole("button", { name: "Choose audio files" }));
+    await user.click(screen.getByRole("button", { name: "Add files" }));
 
     expect(await screen.findByText(track.filename)).toBeInTheDocument();
     expect(screen.getByText(track.title)).toBeInTheDocument();
     expect(screen.getByText(track.artist)).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /^BPM tag/ })).toBeInTheDocument();
+    expect(screen.getByText("123.5")).toBeInTheDocument();
     expect(native.expandFiles).toHaveBeenCalledWith([track.path], settings);
+  });
+
+  it("recursively expands a chosen folder through the audio intake path", async () => {
+    const user = userEvent.setup();
+    const folder = "/Music/Orbital";
+    const legacyTrack: Partial<Track> = { ...track };
+    delete legacyTrack.initialBpm;
+    delete legacyTrack.detectedBpm;
+    vi.mocked(native.pickAudioFolder).mockResolvedValue(folder);
+    vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [legacyTrack as Track], warnings: [] });
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Add folder" }));
+
+    expect(native.pickAudioFolder).toHaveBeenCalledOnce();
+    expect(native.expandFiles).toHaveBeenCalledWith([folder], settings);
+    expect(await screen.findByText(track.filename)).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /^BPM tag/ })).toBeInTheDocument();
   });
 
   it("starts a job and applies ordered sidecar events to the row", async () => {
@@ -126,7 +177,7 @@ describe("App", () => {
     vi.mocked(native.startAnalysis).mockResolvedValue({ jobId: "job-1" });
     render(<App />);
     await screen.findByText("Engine online");
-    await user.click(screen.getByRole("button", { name: "Choose audio files" }));
+    await user.click(screen.getByRole("button", { name: "Add files" }));
     await screen.findByText(track.filename);
     await user.click(screen.getByRole("button", { name: "Analyze batch" }));
     expect(screen.getByText(track.filename).closest("[role='row']")).toHaveClass("is-queued");
@@ -139,7 +190,7 @@ describe("App", () => {
     expect(screen.getByText(track.filename).closest("[role='row']")).not.toHaveClass("is-queued");
     expect(screen.getByText(/Analyzing · 1 thread active/)).toBeInTheDocument();
 
-    const completed = { ...track, detectedKey: 6, detectedCode: "C", status: "completed" as const };
+    const completed = { ...track, detectedKey: 6, detectedCode: "C", detectedBpm: 128.4, status: "completed" as const };
     act(() => {
       eventHandler?.({ version: 1, event: "trackUpdated", jobId: "job-1", sequence: 2, payload: { track: completed } });
       eventHandler?.({ version: 1, event: "jobProgress", jobId: "job-1", sequence: 3, payload: { completed: 1, total: 1, fraction: 1 } });
@@ -147,6 +198,7 @@ describe("App", () => {
     });
 
     expect(screen.getByText("C")).toBeInTheDocument();
+    expect(screen.getByText("128.4")).toBeInTheDocument();
     expect(screen.getByText(track.filename).closest("[role='row']")).toHaveClass("track-row--completed");
     expect(screen.getByRole("log")).toHaveTextContent("Analysis complete");
     expect(screen.getByText(/Last run · 1 of 1 · 100%/).closest(".progress-strip")).toHaveClass("progress-strip--finished");
@@ -161,13 +213,34 @@ describe("App", () => {
     vi.mocked(native.startAnalysis).mockResolvedValue({ jobId: "job-sorted" });
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Choose audio files" }));
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
     await user.click(await screen.findByRole("columnheader", { name: /^Title/ }));
     await user.click(screen.getByRole("button", { name: "Analyze batch" }));
 
-    expect(native.startAnalysis).toHaveBeenCalledWith([alpha, zulu], settings);
+    expect(native.startAnalysis).toHaveBeenCalledWith([alpha, zulu], settings, false);
     expect(screen.getByText("Alpha.wav").closest("[role='row']")).toHaveClass("is-queued");
     expect(screen.getByText("Zulu.wav").closest("[role='row']")).toHaveClass("is-queued");
+  });
+
+  it("requires explicit confirmation before authorizing automatic file writes", async () => {
+    const user = userEvent.setup();
+    const automaticSettings = { ...settings, automaticWrites: true };
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    vi.mocked(native.loadSettings).mockResolvedValue(automaticSettings);
+    vi.mocked(native.pickAudioFiles).mockResolvedValue([track.path]);
+    vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [track], warnings: [] });
+    vi.mocked(native.startAnalysis).mockResolvedValue({ jobId: "job-authorized" });
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
+    await user.click(screen.getByRole("button", { name: "Analyze batch" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("will modify"));
+    expect(native.startAnalysis).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "Analyze batch" }));
+    expect(native.startAnalysis).toHaveBeenCalledWith([track], automaticSettings, true);
+    confirm.mockRestore();
   });
 
   it("colors failed rows with the error state", async () => {
@@ -181,7 +254,7 @@ describe("App", () => {
     vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [failed], warnings: [] });
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Choose audio files" }));
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
 
     expect((await screen.findByText(track.filename)).closest("[role='row']")).toHaveClass("track-row--failed");
     await user.click(screen.getByRole("button", { name: `View error for ${track.filename}` }));
@@ -200,7 +273,11 @@ describe("App", () => {
     fireEvent.keyDown(window, { key: ",", metaKey: true });
 
     const dialog = screen.getByRole("dialog", { name: "Analysis & output" });
+    await user.click(within(dialog).getByRole("checkbox", { name: /^BPM analysis/ }));
     await user.selectOptions(within(dialog).getByLabelText("initialKey output"), "overwrite");
+    const bpmOutput = within(dialog).getByLabelText("bpm output") as HTMLSelectElement;
+    expect(Array.from(bpmOutput.options, (option) => option.value)).toEqual(["none", "overwrite"]);
+    await user.selectOptions(bpmOutput, "overwrite");
     await user.click(within(dialog).getByRole("button", { name: "DJ Notation + Key" }));
     await user.clear(within(dialog).getByLabelText("Separator"));
     await user.type(within(dialog).getByLabelText("Separator"), " / ");
@@ -209,7 +286,8 @@ describe("App", () => {
     expect(native.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
       notation: "djCombined",
       delimiter: " / ",
-      outputs: expect.objectContaining({ initialKey: "overwrite" }),
+      bpmAnalysisEnabled: false,
+      outputs: expect.objectContaining({ initialKey: "overwrite", bpm: "overwrite" }),
     }));
   });
 
@@ -243,19 +321,53 @@ describe("App", () => {
     vi.mocked(native.writeTracks).mockResolvedValue({ tracks: [{ ...completed, comment: "written" }] });
     render(<App />);
     await screen.findByText("Engine online");
-    await user.click(screen.getByRole("button", { name: "Choose audio files" }));
+    await user.click(screen.getByRole("button", { name: "Add files" }));
     await user.click(await screen.findByRole("checkbox", { name: `Select ${track.filename}` }));
 
     await user.click(screen.getByRole("button", { name: "Copy" }));
     expect(clipboard).toHaveBeenCalledWith(expect.stringContaining("Halcyon + On + On"));
 
     await user.click(screen.getByRole("button", { name: "Write selected" }));
+    const writeDialog = screen.getByRole("dialog", { name: "Write metadata to 1 file?" });
+    await user.click(within(writeDialog).getByRole("button", { name: "Write 1 file" }));
     expect(native.writeTracks).toHaveBeenCalledWith([completed], settings);
 
     await user.click(screen.getByRole("button", { name: "Clear results" }));
     expect(screen.queryByText("C")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Remove" }));
     expect(await screen.findByRole("heading", { name: "Build your first batch" })).toBeInTheDocument();
+  });
+
+  it("writes detected BPM for analyzed results without requiring row selection", async () => {
+    const user = userEvent.setup();
+    const bpmSettings: Settings = {
+      ...settings,
+      outputs: {
+        title: "none", artist: "none", album: "none", comment: "none",
+        grouping: "none", initialKey: "none", bpm: "overwrite", filename: "none",
+      },
+    };
+    const analyzed = {
+      ...track,
+      detectedBpm: 128.4,
+      status: "completed" as const,
+    };
+    vi.mocked(native.loadSettings).mockResolvedValue(bpmSettings);
+    vi.mocked(native.pickAudioFiles).mockResolvedValue([track.path]);
+    vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [analyzed], warnings: [] });
+    vi.mocked(native.writeTracks).mockResolvedValue({ tracks: [{ ...analyzed, initialBpm: 128 }] });
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
+    const write = await screen.findByRole("button", { name: "Write analyzed results" });
+    expect(write).toBeEnabled();
+    await user.click(write);
+    const writeDialog = screen.getByRole("dialog", { name: "Write metadata to 1 file?" });
+    expect(within(writeDialog).getByText(/dedicated BPM tag/)).toBeInTheDocument();
+    expect(within(writeDialog).getByText(/Comment tags will not be changed/)).toBeInTheDocument();
+    await user.click(within(writeDialog).getByRole("button", { name: "Write 1 file" }));
+
+    expect(native.writeTracks).toHaveBeenCalledWith([analyzed], bpmSettings);
   });
 
   it("allows an explicitly selected completed track to be analyzed again", async () => {
@@ -266,7 +378,7 @@ describe("App", () => {
     vi.mocked(native.startAnalysis).mockResolvedValue({ jobId: "job-repeat" });
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Choose audio files" }));
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
     expect(screen.getByRole("button", { name: "Analyze batch" })).toBeDisabled();
 
     await user.click(screen.getByRole("checkbox", { name: `Select ${track.filename}` }));
@@ -274,7 +386,7 @@ describe("App", () => {
     expect(analyzeSelected).toBeEnabled();
     await user.click(analyzeSelected);
 
-    expect(native.startAnalysis).toHaveBeenCalledWith([completed], settings);
+    expect(native.startAnalysis).toHaveBeenCalledWith([completed], settings, false);
   });
 
   it("navigates rows with arrow keys and selects all with the platform shortcut", async () => {
@@ -284,7 +396,7 @@ describe("App", () => {
     vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [track, second], warnings: [] });
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Choose audio files" }));
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
     const table = await screen.findByRole("grid", { name: "Audio tracks" });
     table.focus();
 
@@ -310,7 +422,7 @@ describe("App", () => {
     vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [track, second, third], warnings: [] });
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Choose audio files" }));
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
     const firstRow = screen.getByText(track.filename).closest("[role='row']") as HTMLElement;
     const secondRow = screen.getByText(second.filename).closest("[role='row']") as HTMLElement;
     const thirdRow = screen.getByText(third.filename).closest("[role='row']") as HTMLElement;
@@ -339,13 +451,18 @@ describe("App", () => {
     vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [first, second], warnings: [] });
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Choose audio files" }));
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
     const secondRow = (await screen.findByText(second.filename)).closest("[role='row']") as HTMLElement;
     fireEvent.contextMenu(secondRow, { clientX: 120, clientY: 180 });
 
     const clearMenu = screen.getByRole("menu", { name: "Selected row actions" });
     expect(screen.getByRole("checkbox", { name: `Select ${second.filename}` })).toBeChecked();
-    await user.click(within(clearMenu).getByRole("menuitem", { name: "Clear detected keys" }));
+    await user.click(within(clearMenu).getByRole("menuitem", { name: /Show in/ }));
+    expect(native.revealTrackInFolder).toHaveBeenCalledWith(second.path);
+
+    fireEvent.contextMenu(secondRow, { clientX: 120, clientY: 180 });
+    const reopenedMenu = screen.getByRole("menu", { name: "Selected row actions" });
+    await user.click(within(reopenedMenu).getByRole("menuitem", { name: "Clear detected keys" }));
     expect(secondRow.querySelector(".key-cell")).toHaveTextContent("—");
     expect(screen.getByText(first.filename).closest("[role='row']")?.querySelector(".key-cell")).toHaveTextContent("C");
 
@@ -357,6 +474,121 @@ describe("App", () => {
     expect(screen.getByText(second.filename)).toBeInTheDocument();
   });
 
+  it("controls track playback from the context menu and floating player", async () => {
+    const user = userEvent.setup();
+    const play = vi.fn().mockResolvedValue(undefined);
+    const pause = vi.fn();
+    Object.defineProperty(window.HTMLMediaElement.prototype, "play", { configurable: true, value: play });
+    Object.defineProperty(window.HTMLMediaElement.prototype, "pause", { configurable: true, value: pause });
+    Object.defineProperty(window.HTMLMediaElement.prototype, "duration", { configurable: true, get: () => 240 });
+    const second = { ...track, id: "track-2", path: "/Music/Second.wav", filename: "Second.wav", title: "Second" };
+    vi.mocked(native.pickAudioFiles).mockResolvedValue([track.path, second.path]);
+    vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [track, second], warnings: [] });
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
+    const row = screen.getByText(track.filename).closest("[role='row']") as HTMLElement;
+    fireEvent.contextMenu(row, { clientX: 120, clientY: 180 });
+    await user.click(screen.getByRole("menuitem", { name: "Play" }));
+
+    expect(native.prepareAudioPlayback).toHaveBeenCalledWith(track.path);
+    await waitFor(() => expect(native.getAudioWaveform).toHaveBeenCalledWith(track.path, 180));
+    await waitFor(() => expect(play).toHaveBeenCalledOnce());
+    expect(row).toHaveClass("is-playing");
+    const controls = screen.getByRole("region", { name: "Media controls" });
+    await waitFor(() => expect(controls.querySelector(".media-waveform-progress")).toBeInTheDocument());
+    expect(controls.closest(".toolbar")).toHaveClass("toolbar", "toolbar--with-media");
+    const controlsRect = vi.spyOn(controls, "getBoundingClientRect").mockReturnValue({
+      x: 300,
+      y: 20,
+      left: 300,
+      top: 20,
+      right: 700,
+      bottom: 49,
+      width: 400,
+      height: 29,
+      toJSON: () => undefined,
+    });
+    fireEvent.pointerDown(controls, { pointerId: 1, button: 0, clientX: 350, clientY: 35 });
+    fireEvent.pointerMove(controls, { pointerId: 1, clientX: 400, clientY: 300 });
+    fireEvent.pointerUp(controls, { pointerId: 1, clientX: 400, clientY: 300 });
+    expect(controls).toHaveClass("is-floating");
+    expect(controls).toHaveStyle({ left: "350px", top: "285px" });
+    expect(JSON.parse(window.localStorage.getItem("neo-keyfinder.media-position.v1") ?? "null")).toEqual({ x: 350, y: 285 });
+    controlsRect.mockReturnValue({
+      x: 350,
+      y: 285,
+      left: 350,
+      top: 285,
+      right: 750,
+      bottom: 314,
+      width: 400,
+      height: 29,
+      toJSON: () => undefined,
+    });
+    vi.spyOn(controls.parentElement as HTMLElement, "getBoundingClientRect").mockReturnValue({
+      x: 300,
+      y: 20,
+      left: 300,
+      top: 20,
+      right: 700,
+      bottom: 49,
+      width: 400,
+      height: 29,
+      toJSON: () => undefined,
+    });
+    vi.spyOn(controls.closest(".toolbar") as HTMLElement, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1024,
+      bottom: 70,
+      width: 1024,
+      height: 70,
+      toJSON: () => undefined,
+    });
+    fireEvent.pointerDown(controls, { pointerId: 2, button: 0, clientX: 400, clientY: 300 });
+    fireEvent.pointerMove(controls, { pointerId: 2, clientX: 100, clientY: 35 });
+    expect(controls.parentElement).toHaveClass("is-snap-target");
+    expect(controls).toHaveClass("is-over-dock");
+    fireEvent.pointerUp(controls, { pointerId: 2, clientX: 100, clientY: 35 });
+    expect(controls).not.toHaveClass("is-floating");
+    expect(controls.parentElement).toHaveClass("has-snapped");
+    expect(window.localStorage.getItem("neo-keyfinder.media-position.v1")).toBeNull();
+    expect(within(controls).getByRole("button", { name: "Previous track" })).toBeDisabled();
+    expect(within(controls).getByRole("button", { name: "Next track" })).toBeEnabled();
+    fireEvent.change(within(controls).getByRole("slider", { name: "Seek" }), { target: { value: "30" } });
+    expect(within(controls).getByRole("slider", { name: "Seek" })).toHaveValue("30");
+    fireEvent.change(within(controls).getByRole("slider", { name: "Playback volume" }), { target: { value: "0.35" } });
+    expect(within(controls).getByRole("slider", { name: "Playback volume" })).toHaveValue("0.35");
+    await user.click(within(controls).getByRole("button", { name: "Mute" }));
+    expect(within(controls).getByRole("button", { name: "Unmute" })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+    expect(pause).toHaveBeenCalledOnce();
+    expect(row).toHaveClass("is-playing", "is-playback-paused");
+    fireEvent.keyDown(window, { key: " ", code: "Space" });
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(2));
+    expect(row).not.toHaveClass("is-playback-paused");
+
+    fireEvent.doubleClick(row);
+    expect(pause).toHaveBeenCalledTimes(2);
+    expect(row).toHaveClass("is-playback-paused");
+    fireEvent.doubleClick(row);
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(3));
+
+    await user.click(within(controls).getByRole("button", { name: "Next track" }));
+    await waitFor(() => expect(native.prepareAudioPlayback).toHaveBeenLastCalledWith(second.path));
+    const nextControls = screen.getByRole("region", { name: "Media controls" });
+    expect(within(nextControls).getByText("Second - Orbital")).toBeInTheDocument();
+    const closePlayer = within(nextControls).getByRole("button", { name: "Close media player" });
+    expect(closePlayer).toHaveAttribute("title", "Close media player");
+    expect(closePlayer.querySelector(".media-close-icon")).toBeInTheDocument();
+    await user.click(closePlayer);
+    expect(screen.queryByRole("region", { name: "Media controls" })).not.toBeInTheDocument();
+  });
+
   it("cancels an active batch and resets column sorting on the third click", async () => {
     const user = userEvent.setup();
     const second = { ...track, id: "track-2", path: "/Music/A.wav", filename: "A.wav", title: "Alpha" };
@@ -366,7 +598,7 @@ describe("App", () => {
     vi.mocked(native.cancelAnalysis).mockResolvedValue({ cancelled: true });
     render(<App />);
     await screen.findByText("Engine online");
-    await user.click(screen.getByRole("button", { name: "Choose audio files" }));
+    await user.click(screen.getByRole("button", { name: "Add files" }));
 
     const titleHeader = await screen.findByRole("columnheader", { name: /^Title/ });
     await user.click(titleHeader);
@@ -380,6 +612,126 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Cancel analysis" }));
     expect(native.cancelAnalysis).toHaveBeenCalledWith("job-2");
     expect(screen.getByRole("log")).toHaveTextContent("Cancelling after the current decode step");
+  });
+
+  it("selects, resizes, and sorts visible table columns", async () => {
+    const user = userEvent.setup();
+    vi.mocked(native.pickAudioFiles).mockResolvedValue([track.path]);
+    vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [track], warnings: [] });
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
+    const table = screen.getByRole("grid", { name: "Audio tracks" });
+    Object.defineProperty(table, "clientWidth", { configurable: true, value: 600 });
+    Object.defineProperty(table, "scrollWidth", { configurable: true, value: 1200 });
+    fireEvent.wheel(table, { deltaX: 80 });
+    expect(table.scrollLeft).toBe(80);
+    fireEvent.wheel(table, { deltaY: 120, shiftKey: true });
+    expect(table.scrollLeft).toBe(200);
+    fireEvent.keyDown(table, { key: "ArrowRight", shiftKey: true });
+    expect(table.scrollLeft).toBe(300);
+    await user.click(screen.getByRole("button", { name: "Choose table columns" }));
+    const columnsMenu = screen.getByRole("menu", { name: "Table columns" });
+    await user.click(within(columnsMenu).getByRole("checkbox", { name: "Album" }));
+
+    expect(screen.queryByRole("columnheader", { name: /^Album/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(track.album)).not.toBeInTheDocument();
+
+    const filenameHeader = screen.getByRole("columnheader", { name: /^Filename/ });
+    const resizeHandle = screen.getByRole("separator", { name: "Resize Filename column" });
+    fireEvent.pointerDown(resizeHandle, { clientX: 100 });
+    fireEvent.pointerMove(window, { clientX: 150 });
+    fireEvent.pointerUp(window);
+    expect(resizeHandle).toHaveAttribute("aria-valuenow", "290");
+
+    await user.click(filenameHeader);
+    expect(filenameHeader).toHaveAttribute("aria-sort", "ascending");
+    await waitFor(() => {
+      const stored = JSON.parse(window.localStorage.getItem("neo-keyfinder.table-layout.v1") ?? "null");
+      expect(stored.visible).not.toContain("album");
+      expect(stored.widths.filename).toBe(290);
+    });
+  });
+
+  it("filters table rows across track values", async () => {
+    const user = userEvent.setup();
+    const second = { ...track, id: "track-2", path: "/Music/Second.wav", filename: "Second.wav", title: "Second", artist: "Other Artist", detectedBpm: 128 };
+    vi.mocked(native.pickAudioFiles).mockResolvedValue([track.path, second.path]);
+    vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [track, second], warnings: [] });
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
+    const filter = screen.getByRole("searchbox", { name: "Filter tracks" });
+    await user.type(filter, "other 128");
+    expect(screen.queryByText(track.filename)).not.toBeInTheDocument();
+    expect(screen.getByText(second.filename)).toBeInTheDocument();
+    expect(screen.getByText("1/2")).toBeInTheDocument();
+
+    await user.clear(filter);
+    await user.type(filter, "no-such-track");
+    expect(screen.getByText("No tracks match this filter")).toHaveAttribute("role", "status");
+    await user.click(screen.getByRole("button", { name: "Clear track filter" }));
+    expect(screen.getByText(track.filename)).toBeInTheDocument();
+    expect(screen.getByText(second.filename)).toBeInTheDocument();
+  });
+
+  it("adds the BPM tag to an existing saved column layout", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem("neo-keyfinder.table-layout.v1", JSON.stringify({
+      visible: ["filename", "detectedBpm"],
+      order: ["filename", "detectedBpm", "detectedCode"],
+      widths: { filename: 260 },
+    }));
+    vi.mocked(native.pickAudioFiles).mockResolvedValue([track.path]);
+    vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [track], warnings: [] });
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
+    expect(screen.getByRole("columnheader", { name: /^BPM tag/ })).toBeInTheDocument();
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers.indexOf(screen.getByRole("columnheader", { name: /^BPM tag/ })))
+      .toBeLessThan(headers.indexOf(screen.getByRole("columnheader", { name: /^Detected BPM/ })));
+  });
+
+  it("reorders columns by dragging a header grip and persists the order", async () => {
+    const user = userEvent.setup();
+    vi.mocked(native.pickAudioFiles).mockResolvedValue([track.path]);
+    vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [track], warnings: [] });
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
+    const titleGrip = screen.getByRole("button", { name: "Reorder Title column" });
+    const albumHeader = screen.getByRole("columnheader", { name: /^Album/ });
+    vi.spyOn(albumHeader, "getBoundingClientRect").mockReturnValue({
+      left: 0, right: 100, top: 0, bottom: 40, width: 100, height: 40, x: 0, y: 0, toJSON: () => ({}),
+    });
+    fireEvent.pointerDown(titleGrip, { button: 0, clientX: 10 });
+    act(() => {
+      fileDropHoverHandler?.(true);
+      fileDropHandler?.(["/not-a-real-column-file"]);
+    });
+    expect(screen.queryByText("Drop files to add")).not.toBeInTheDocument();
+    expect(native.expandFiles).toHaveBeenCalledTimes(1);
+    fireEvent.pointerMove(window, { clientX: 75 });
+    fireEvent.pointerUp(window, { clientX: 75 });
+
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers.indexOf(screen.getByRole("columnheader", { name: /^Title/ })))
+      .toBeGreaterThan(headers.indexOf(screen.getByRole("columnheader", { name: /^Album/ })));
+    await waitFor(() => {
+      const stored = JSON.parse(window.localStorage.getItem("neo-keyfinder.table-layout.v1") ?? "null");
+      expect(stored.order.indexOf("title")).toBeGreaterThan(stored.order.indexOf("album"));
+    });
+
+    await user.click(screen.getByRole("button", { name: "Choose table columns" }));
+    await user.click(screen.getByRole("button", { name: "Reset order" }));
+    const resetHeaders = screen.getAllByRole("columnheader");
+    expect(resetHeaders.indexOf(screen.getByRole("columnheader", { name: /^Title/ })))
+      .toBeLessThan(resetHeaders.indexOf(screen.getByRole("columnheader", { name: /^Album/ })));
+    await waitFor(() => {
+      const stored = JSON.parse(window.localStorage.getItem("neo-keyfinder.table-layout.v1") ?? "null");
+      expect(stored.order.slice(0, 4)).toEqual(["filename", "title", "artist", "album"]);
+    });
   });
 
   it("browses read-only libraries and warns before replacing the batch", async () => {
@@ -399,7 +751,7 @@ describe("App", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Choose audio files" }));
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
     await screen.findByText(track.filename);
     await user.click(await screen.findByRole("button", { name: /Warmup/ }));
 
@@ -438,7 +790,7 @@ describe("App", () => {
     const menu = screen.getByRole("menu", { name: "Application actions" });
     expect(within(menu).getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
     expect(within(menu).getByRole("menuitem", { name: "Check for updates" })).toBeInTheDocument();
-    expect(within(menu).getByRole("menuitem", { name: "About Neo KeyFinder" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "About NeoKeyAndBpmFinder" })).toBeInTheDocument();
     await user.click(within(menu).getByRole("menuitem", { name: "New window" }));
 
     expect(native.newBatchWindow).toHaveBeenCalledOnce();
@@ -478,8 +830,8 @@ describe("App", () => {
 
     await screen.findByText("Engine online");
     await user.click(screen.getByRole("button", { name: "Open application menu" }));
-    await user.click(screen.getByRole("menuitem", { name: "About Neo KeyFinder" }));
-    const dialog = await screen.findByRole("dialog", { name: "About Neo KeyFinder" });
+    await user.click(screen.getByRole("menuitem", { name: "About NeoKeyAndBpmFinder" }));
+    const dialog = await screen.findByRole("dialog", { name: "About NeoKeyAndBpmFinder" });
     await user.click(within(dialog).getByRole("button", { name: "Check for updates" }));
 
     expect(await within(dialog).findByText("A newer release is available: v0.2.0")).toBeInTheDocument();
