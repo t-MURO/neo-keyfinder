@@ -13,6 +13,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 option(NKF_BUILD_TESTS "Build native engine tests" ON)
 option(NKF_ENABLE_ESSENTIA "Enable Essentia BPM detection when available" ON)
@@ -41,7 +44,13 @@ FetchContent_MakeAvailable(pugixml)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(TAGLIB REQUIRED IMPORTED_TARGET taglib>=2.0)
-pkg_check_modules(KEYFINDER REQUIRED IMPORTED_TARGET libkeyfinder=2.2.8)
+if(MSVC)
+  find_package(KeyFinder CONFIG REQUIRED)
+  set(NKF_KEYFINDER_TARGET KeyFinder::keyfinder)
+else()
+  pkg_check_modules(KEYFINDER REQUIRED IMPORTED_TARGET libkeyfinder=2.2.8)
+  set(NKF_KEYFINDER_TARGET PkgConfig::KEYFINDER)
+endif()
 pkg_check_modules(
   FFMPEG
   REQUIRED
@@ -123,7 +132,7 @@ target_link_libraries(
     pugixml::pugixml
   PRIVATE
     PkgConfig::FFMPEG
-    PkgConfig::KEYFINDER
+    ${NKF_KEYFINDER_TARGET}
     PkgConfig::TAGLIB
 )
 if(NKF_HAS_ESSENTIA)

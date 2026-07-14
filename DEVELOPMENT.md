@@ -40,8 +40,10 @@ Install:
    statically; no FFmpeg, TagLib, FFTW, or libkeyfinder installation is required
    on the machine that runs the resulting application.
 
-Run commands below from a Developer PowerShell or a terminal where CMake and
-the MSVC compiler are on `PATH`.
+Run commands below from a Developer PowerShell or a terminal where the MSVC
+compiler is on `PATH`. The build helper uses CMake 3.24 or newer from `PATH`,
+`NKF_CMAKE`, Visual Studio 2022, or a portable installation at
+`native/.dependencies/tools/cmake-*/bin`.
 
 ### Linux x64 (Debian or Ubuntu)
 
@@ -171,6 +173,13 @@ Build the platform installer or bundle:
 ```sh
 export VCPKG_ROOT=/absolute/path/to/vcpkg
 npm run build
+```
+
+On Windows, the convenience command initializes Visual Studio, selects the
+MSVC Rust toolchain and static x64 vcpkg triplet, and creates the NSIS installer:
+
+```powershell
+npm run build:windows
 ```
 
 Release builds deliberately require `VCPKG_ROOT`. The pinned manifest builds

@@ -300,12 +300,6 @@ fn migrate_legacy(settings: &mut Value) {
                     .ok()
                     .map(|value| value.to_string())
             })
-            .or_else(|| {
-                group
-                    .get_value::<i32, _>(field)
-                    .ok()
-                    .map(|value| value.to_string())
-            })
     });
 }
 

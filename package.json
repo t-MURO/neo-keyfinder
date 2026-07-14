@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "npm run native:build && tauri dev",
     "build": "npm run native:build -- --release && tauri build",
+    "build:windows": "node scripts/build-windows.mjs",
     "build:macos-universal": "node scripts/build-universal-sidecar.mjs && tauri build --target universal-apple-darwin",
     "build:debug": "npm run native:build && tauri build --debug --no-bundle",
     "release:macos": "node scripts/release-macos.mjs",
