@@ -10,7 +10,7 @@ vi.mock("./lib/native-engine", () => ({
   loadSettings: vi.fn(),
   saveSettings: vi.fn(),
   pickAudioFiles: vi.fn(),
-  pickAudioFolder: vi.fn(),
+  pickAudioFolders: vi.fn(),
   prepareAudioPlayback: vi.fn(),
   revealTrackInFolder: vi.fn(),
   getAudioWaveform: vi.fn(),
@@ -98,7 +98,7 @@ describe("App", () => {
     vi.mocked(native.loadSettings).mockResolvedValue(settings);
     vi.mocked(native.saveSettings).mockResolvedValue();
     vi.mocked(native.pickAudioFiles).mockResolvedValue([]);
-    vi.mocked(native.pickAudioFolder).mockResolvedValue(null);
+    vi.mocked(native.pickAudioFolders).mockResolvedValue([]);
     vi.mocked(native.prepareAudioPlayback).mockResolvedValue("asset://localhost/audio.flac");
     vi.mocked(native.revealTrackInFolder).mockResolvedValue();
     vi.mocked(native.getAudioWaveform).mockResolvedValue([0.2, 0.8, 0.4, 1]);
@@ -131,7 +131,7 @@ describe("App", () => {
     expect(await screen.findByText("Engine online")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Build your first batch" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add files" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Add folder" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add folders" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
   });
 
@@ -152,22 +152,47 @@ describe("App", () => {
     expect(native.expandFiles).toHaveBeenCalledWith([track.path], settings);
   });
 
-  it("recursively expands a chosen folder through the audio intake path", async () => {
+  it("recursively expands multiple chosen folders through one audio intake", async () => {
     const user = userEvent.setup();
-    const folder = "/Music/Orbital";
+    const folders = ["/Music/Orbital", "/Music/Underworld", "/Music/Leftfield"];
     const legacyTrack: Partial<Track> = { ...track };
     delete legacyTrack.initialBpm;
     delete legacyTrack.detectedBpm;
-    vi.mocked(native.pickAudioFolder).mockResolvedValue(folder);
+    vi.mocked(native.pickAudioFolders).mockResolvedValue(folders);
     vi.mocked(native.expandFiles).mockResolvedValue({ tracks: [legacyTrack as Track], warnings: [] });
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Add folder" }));
+    await user.click(await screen.findByRole("button", { name: "Add folders" }));
 
-    expect(native.pickAudioFolder).toHaveBeenCalledOnce();
-    expect(native.expandFiles).toHaveBeenCalledWith([folder], settings);
+    expect(native.pickAudioFolders).toHaveBeenCalledOnce();
+    expect(native.expandFiles).toHaveBeenCalledWith(folders, settings);
     expect(await screen.findByText(track.filename)).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: /^BPM tag/ })).toBeInTheDocument();
+  });
+
+  it("offers one add menu next to the batch summary after the first import", async () => {
+    const user = userEvent.setup();
+    const second = { ...track, id: "track-2", path: "/Music/Second.wav", filename: "Second.wav" };
+    vi.mocked(native.pickAudioFiles).mockResolvedValue([track.path]);
+    vi.mocked(native.expandFiles).mockResolvedValueOnce({ tracks: [track], warnings: [] });
+    render(<App />);
+
+    expect(screen.queryByRole("button", { name: "Add more songs" })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Add files" }));
+
+    const addMore = await screen.findByRole("button", { name: "Add more songs" });
+    expect(addMore.closest(".batch-summary-group")).toContainElement(screen.getByLabelText("Batch summary"));
+    await user.click(addMore);
+    const menu = screen.getByRole("menu", { name: "Add tracks" });
+    expect(within(menu).getByRole("menuitem", { name: "Add files" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Add folders" })).toBeInTheDocument();
+
+    vi.mocked(native.pickAudioFiles).mockResolvedValue([second.path]);
+    vi.mocked(native.expandFiles).mockResolvedValueOnce({ tracks: [second], warnings: [] });
+    await user.click(within(menu).getByRole("menuitem", { name: "Add files" }));
+
+    expect(await screen.findByText(second.filename)).toBeInTheDocument();
+    expect(screen.getByLabelText("Batch summary")).toHaveTextContent(/2 tracks/);
   });
 
   it("starts a job and applies ordered sidecar events to the row", async () => {
@@ -436,6 +461,11 @@ describe("App", () => {
     expect(screen.getByRole("checkbox", { name: `Select ${second.filename}` })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: `Select ${third.filename}` })).toBeChecked();
     expect(screen.getByText("2 selected")).toBeInTheDocument();
+
+    await user.click(thirdRow);
+    expect(screen.getByRole("checkbox", { name: `Select ${track.filename}` })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: `Select ${third.filename}` })).not.toBeChecked();
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
   });
 
   it("offers selected-row actions from the row context menu", async () => {
@@ -492,7 +522,7 @@ describe("App", () => {
     await user.click(screen.getByRole("menuitem", { name: "Play" }));
 
     expect(native.prepareAudioPlayback).toHaveBeenCalledWith(track.path);
-    await waitFor(() => expect(native.getAudioWaveform).toHaveBeenCalledWith(track.path, 180));
+    await waitFor(() => expect(native.getAudioWaveform).toHaveBeenCalledWith(track.path, 96));
     await waitFor(() => expect(play).toHaveBeenCalledOnce());
     expect(row).toHaveClass("is-playing");
     const controls = screen.getByRole("region", { name: "Media controls" });

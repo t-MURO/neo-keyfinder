@@ -32,7 +32,8 @@ void write_little_endian(std::ofstream& stream, Value value) {
 }
 
 void write_wave(const std::filesystem::path& path,
-                const std::vector<double>& frequencies) {
+                const std::vector<double>& frequencies,
+                bool dynamic = false) {
   constexpr std::uint32_t sample_rate = 44100;
   constexpr std::uint16_t channels = 1;
   constexpr std::uint16_t bits = 16;
@@ -59,7 +60,8 @@ void write_wave(const std::filesystem::path& path,
       value += std::sin(2.0 * pi * frequency * sample / sample_rate);
     }
     if (!frequencies.empty()) value /= static_cast<double>(frequencies.size());
-    const auto encoded = static_cast<std::int16_t>(value * 22000.0);
+    const double envelope = dynamic && sample < sample_count / 2 ? 0.12 : 1.0;
+    const auto encoded = static_cast<std::int16_t>(value * envelope * 22000.0);
     write_little_endian(output, static_cast<std::uint16_t>(encoded));
   }
 }
@@ -131,10 +133,12 @@ int main() {
   const auto major = temporary / "a-major.wav";
   const auto minor = temporary / "a-minor.wav";
   const auto silent = temporary / "silence.wav";
+  const auto dynamic = temporary / "dynamic.wav";
   const auto click_track = temporary / "120-bpm.wav";
   write_wave(major, {220.0, 277.1826, 329.6276});
   write_wave(minor, {220.0, 261.6256, 329.6276});
   write_wave(silent, {});
+  write_wave(dynamic, {220.0}, true);
   write_click_track(click_track, 120.0);
 
   const auto analyze = [](const auto& path) {
@@ -148,6 +152,15 @@ int main() {
   expect(waveform.size() == 128, "waveform has the requested resolution");
   expect(*std::max_element(waveform.begin(), waveform.end()) > 0.99F,
          "waveform peaks are normalized");
+  const auto dynamic_waveform = keyfinder::domain::generate_waveform(dynamic, 64);
+  double quiet_mean = 0.0;
+  double loud_mean = 0.0;
+  for (std::size_t index = 0; index < dynamic_waveform.size() / 2; ++index) {
+    quiet_mean += dynamic_waveform[index];
+    loud_mean += dynamic_waveform[index + dynamic_waveform.size() / 2];
+  }
+  expect(quiet_mean < loud_mean * 0.35,
+         "waveform preserves strong quiet-to-loud dynamics");
   const auto silent_waveform = keyfinder::domain::generate_waveform(silent, 64);
   expect(std::all_of(silent_waveform.begin(), silent_waveform.end(),
                      [](float peak) { return peak == 0.0F; }),

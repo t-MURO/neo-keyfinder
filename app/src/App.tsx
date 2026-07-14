@@ -20,7 +20,7 @@ import {
   loadSettings,
   newBatchWindow,
   openProjectUrl,
-  pickAudioFolder,
+  pickAudioFolders,
   pickAudioFiles,
   pickPlaylistFile,
   prepareAudioPlayback,
@@ -289,6 +289,73 @@ function ApplicationMenu({
           <button type="button" role="menuitem" aria-keyshortcuts="Meta+, Control+," onClick={() => run(onSettings)}>Settings</button>
           <button type="button" role="menuitem" onClick={() => run(onCheckUpdates)}>Check for updates</button>
           <button type="button" role="menuitem" onClick={() => run(onAbout)}>About NeoKeyAndBpmFinder</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddTracksMenu({
+  disabled,
+  onAddFiles,
+  onAddFolders,
+}: {
+  disabled: boolean;
+  onAddFiles: () => void;
+  onAddFolders: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      toggleRef.current?.focus();
+    };
+    window.addEventListener("pointerdown", closeOutside);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeOutside);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  const run = (action: () => void) => {
+    setOpen(false);
+    action();
+  };
+
+  return (
+    <div className="add-tracks-menu" ref={rootRef}>
+      <button
+        className="add-tracks-toggle"
+        type="button"
+        aria-label="Add more songs"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        ref={toggleRef}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="add-tracks-plus" aria-hidden="true">+</span>
+        <span>Add more songs</span>
+      </button>
+      {open && (
+        <div className="add-tracks-popover" role="menu" aria-label="Add tracks">
+          <button type="button" role="menuitem" onClick={() => run(onAddFiles)}>
+            <AddFilesIcon />
+            <span>Add files</span>
+          </button>
+          <button type="button" role="menuitem" onClick={() => run(onAddFolders)}>
+            <AddFolderIcon />
+            <span>Add folders</span>
+          </button>
         </div>
       )}
     </div>
@@ -984,7 +1051,7 @@ function MediaControls({
     let disposed = false;
     setWaveform([]);
     setWaveformLoading(true);
-    getAudioWaveform(track.path, 180)
+    getAudioWaveform(track.path, 96)
       .then((peaks) => {
         if (!disposed) setWaveform(peaks);
       })
@@ -1362,6 +1429,13 @@ function TrackTable({
     if (modifiers.metaKey || modifiers.ctrlKey || toggleWithoutModifier) {
       const next = new Set(selected);
       if (next.has(track.id)) next.delete(track.id); else next.add(track.id);
+      setSelectionAnchorId(track.id);
+      onSelected(next);
+      return;
+    }
+    if (selected.has(track.id)) {
+      const next = new Set(selected);
+      next.delete(track.id);
       setSelectionAnchorId(track.id);
       onSelected(next);
       return;
@@ -2081,10 +2155,10 @@ export default function App() {
   const chooseFiles = async () => {
     try { await addPaths(await pickAudioFiles()); } catch (error) { setNotice(errorMessage(error)); }
   };
-  const chooseFolder = async () => {
+  const chooseFolders = async () => {
     try {
-      const folder = await pickAudioFolder();
-      if (folder) await addPaths([folder]);
+      const folders = await pickAudioFolders();
+      if (folders.length) await addPaths(folders);
     } catch (error) { setNotice(errorMessage(error)); }
   };
   const openPlaylist = async (playlist: Playlist) => {
@@ -2309,10 +2383,19 @@ export default function App() {
         )}
         <section className="batch-panel" aria-label="Batch controls">
           <div className={`toolbar ${playingTrack ? "toolbar--with-media" : ""}`}>
-            <div className="batch-stats" aria-label="Batch summary">
-              <span><strong>{tracks.length}</strong> tracks</span>
-              <span><strong>{completed}</strong> complete</span>
-              <span className={failed ? "has-errors" : ""}><strong>{failed}</strong> failed</span>
+            <div className="batch-summary-group">
+              <div className="batch-stats" aria-label="Batch summary">
+                <span><strong>{tracks.length}</strong> tracks</span>
+                <span><strong>{completed}</strong> complete</span>
+                <span className={failed ? "has-errors" : ""}><strong>{failed}</strong> failed</span>
+              </div>
+              {tracks.length > 0 && (
+                <AddTracksMenu
+                  disabled={busy || !!jobId || engine.kind !== "available"}
+                  onAddFiles={() => void chooseFiles()}
+                  onAddFolders={() => void chooseFolders()}
+                />
+              )}
             </div>
             {playingTrack && (
               <MediaControls
@@ -2374,9 +2457,9 @@ export default function App() {
               <h2>{dropHover ? "Drop to add your music" : "Build your first batch"}</h2>
               <p>Drop audio files or folders here, or choose them from your computer. Folders are scanned recursively.</p>
               <div className="empty-state-actions">
-                <button className="button primary" type="button" disabled={busy} onClick={() => void chooseFolder()}>
+                <button className="button primary" type="button" disabled={busy} onClick={() => void chooseFolders()}>
                   <AddFolderIcon />
-                  <span>Add folder</span>
+                  <span>Add folders</span>
                 </button>
                 <button className="button secondary" type="button" disabled={busy} onClick={() => void chooseFiles()}>
                   <AddFilesIcon />

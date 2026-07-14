@@ -144,12 +144,15 @@ async fn pick_audio_files() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-async fn pick_audio_folder() -> Result<Option<String>, String> {
+async fn pick_audio_folders() -> Result<Vec<String>, String> {
     Ok(rfd::AsyncFileDialog::new()
-        .set_title("Add a folder")
-        .pick_folder()
+        .set_title("Add folders")
+        .pick_folders()
         .await
-        .map(|folder| folder.path().to_string_lossy().into_owned()))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|folder| folder.path().to_string_lossy().into_owned())
+        .collect())
 }
 
 fn is_supported_audio_file(path: &std::path::Path) -> bool {
@@ -318,7 +321,7 @@ pub fn register_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri
         load_settings,
         save_settings,
         pick_audio_files,
-        pick_audio_folder,
+        pick_audio_folders,
         prepare_audio_playback,
         reveal_audio_file,
         get_audio_waveform,

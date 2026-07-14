@@ -25,8 +25,8 @@ export async function pickAudioFiles(): Promise<string[]> {
   return invoke<string[]>("pick_audio_files");
 }
 
-export async function pickAudioFolder(): Promise<string | null> {
-  return invoke<string | null>("pick_audio_folder");
+export async function pickAudioFolders(): Promise<string[]> {
+  return invoke<string[]>("pick_audio_folders");
 }
 
 export async function prepareAudioPlayback(path: string): Promise<string> {

@@ -60,8 +60,12 @@ std::vector<float> resize_envelope(const std::vector<float>& source,
     for (std::size_t point = 0; point < points; ++point) {
       const auto begin = point * source.size() / points;
       const auto end = std::max(begin + 1, (point + 1) * source.size() / points);
-      result[point] = *std::max_element(source.begin() + static_cast<std::ptrdiff_t>(begin),
-                                       source.begin() + static_cast<std::ptrdiff_t>(end));
+      double energy = 0.0;
+      for (auto index = begin; index < end; ++index) {
+        energy += static_cast<double>(source[index]) * source[index];
+      }
+      result[point] = static_cast<float>(
+          std::sqrt(energy / static_cast<double>(end - begin)));
     }
   } else if (source.size() == 1) {
     std::fill(result.begin(), result.end(), source.front());
@@ -77,10 +81,14 @@ std::vector<float> resize_envelope(const std::vector<float>& source,
     }
   }
 
-  const float maximum = *std::max_element(result.begin(), result.end());
+  auto sorted = result;
+  std::sort(sorted.begin(), sorted.end());
+  const float maximum = sorted.back();
   if (maximum <= 0.00001F) return result;
+  const float percentile = sorted[(sorted.size() - 1) * 95 / 100];
+  const float reference = percentile > 0.00001F ? percentile : maximum;
   for (auto& peak : result) {
-    peak = std::pow(std::clamp(peak / maximum, 0.0F, 1.0F), 0.6F);
+    peak = std::pow(std::clamp(peak / reference, 0.0F, 1.0F), 1.35F);
   }
   return result;
 }
@@ -136,7 +144,7 @@ std::vector<float> generate_waveform(const std::filesystem::path& path,
   if (!packet || !frame) throw std::runtime_error("Could not allocate decode buffers");
 
   std::vector<float> block_peaks;
-  float current_peak = 0.0F;
+  double current_energy = 0.0;
   std::size_t current_frames = 0;
   std::uint64_t decoded_frames = 0;
 
@@ -164,13 +172,13 @@ std::vector<float> generate_waveform(const std::filesystem::path& path,
 
       for (int sample = 0; sample < converted; ++sample) {
         const auto offset = static_cast<std::size_t>(sample) * kWaveformChannels;
-        const int left = std::abs(static_cast<int>(samples[offset]));
-        const int right = std::abs(static_cast<int>(samples[offset + 1]));
-        current_peak = std::max(
-            current_peak, static_cast<float>(std::max(left, right)) / 32768.0F);
+        const double left = static_cast<double>(samples[offset]) / 32768.0;
+        const double right = static_cast<double>(samples[offset + 1]) / 32768.0;
+        current_energy += (left * left + right * right) * 0.5;
         if (++current_frames == kFramesPerPeak) {
-          block_peaks.push_back(current_peak);
-          current_peak = 0.0F;
+          block_peaks.push_back(static_cast<float>(
+              std::sqrt(current_energy / static_cast<double>(current_frames))));
+          current_energy = 0.0;
           current_frames = 0;
         }
       }
@@ -208,7 +216,10 @@ std::vector<float> generate_waveform(const std::filesystem::path& path,
     av_packet_unref(packet.get());
   }
   if (submit_packet(nullptr, "Could not flush the audio decoder")) consume_frames();
-  if (current_frames > 0) block_peaks.push_back(current_peak);
+  if (current_frames > 0) {
+    block_peaks.push_back(static_cast<float>(
+        std::sqrt(current_energy / static_cast<double>(current_frames))));
+  }
   if (decoded_frames == 0) throw std::runtime_error("No decodable audio frames were found");
   return resize_envelope(block_peaks, points);
 }
