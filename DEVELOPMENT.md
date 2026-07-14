@@ -134,6 +134,32 @@ deserializes the result back into the frontend contract.
 
 ## Local builds
 
+### Apple Silicon release
+
+Create, verify, and publish a local Apple Silicon DMG with one command:
+
+```sh
+npm run release:macos
+```
+
+The command checks the Git working tree and required tools, finds `VCPKG_ROOT`
+from the environment or a standard local installation, builds only arm64,
+verifies the DMG checksum, bundle version, macOS 11 deployment target, bundled
+executables, architectures, and dynamic dependencies, then writes the durable
+release files and a complete `build.log` to `release-artifacts/v<version>/`.
+
+Create a release with a new version number using:
+
+```sh
+npm run release:macos -- --version 0.2.0
+```
+
+This synchronizes `package.json`, `package-lock.json`, the frontend package,
+Cargo, and Tauri before building. If the release fails, the version files are
+restored. Releases require a clean working tree by default; use
+`--allow-dirty` only for an intentional local diagnostic build. Run
+`npm run release:macos -- --check` to check the setup without building.
+
 Build the application binary without creating an installer:
 
 ```sh

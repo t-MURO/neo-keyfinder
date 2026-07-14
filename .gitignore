@@ -15,4 +15,5 @@ src-tauri/gen/
 src-tauri/target/
 target/
 coverage/
+release-artifacts/
 *.log
