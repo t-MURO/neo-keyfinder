@@ -128,6 +128,9 @@ const configureArguments = [
   buildRoot,
   `-DCMAKE_BUILD_TYPE=${configuration}`,
   "-DNKF_BUILD_TESTS=ON",
+  "-UESSENTIA_INCLUDE_DIR",
+  "-UESSENTIA_LIBRARY",
+  "-UEIGEN3_INCLUDE_DIR",
   `-DESSENTIA_ROOT=${essentiaRoot}`,
 ];
 if (process.platform === "darwin") {

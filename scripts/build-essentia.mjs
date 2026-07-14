@@ -7,6 +7,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dependenciesRoot = join(root, "native", ".dependencies");
 const ESSENTIA_COMMIT = "b9fa6cb674ca43dfb94d28d293aeda441c6745db";
 const EIGEN_COMMIT = "3147391d946bb4b6c68edd901f2add6ac1f31f8c";
+const MACOS_DEPLOYMENT_TARGET = "11.0";
 
 function run(command, args, options = {}) {
   execFileSync(command, args, {
@@ -67,7 +68,8 @@ export function installVcpkgManifest(vcpkgRoot, triplet) {
 export function prepareEssentia({ architecture = process.arch, eigenInclude } = {}) {
   if (process.env.ESSENTIA_ROOT) return resolve(process.env.ESSENTIA_ROOT);
 
-  const cacheKey = `${process.platform}-${architecture}-${ESSENTIA_COMMIT.slice(0, 10)}`;
+  const platformVariant = process.platform === "darwin" ? `darwin-macos${MACOS_DEPLOYMENT_TARGET}` : process.platform;
+  const cacheKey = `${platformVariant}-${architecture}-${ESSENTIA_COMMIT.slice(0, 10)}`;
   const cacheRoot = join(dependenciesRoot, cacheKey);
   const sourceRoot = join(cacheRoot, "source");
   const installRoot = join(cacheRoot, "install");
@@ -102,7 +104,7 @@ export function prepareEssentia({ architecture = process.arch, eigenInclude } = 
   const env = { ...process.env };
   if (process.platform === "darwin" && architecture) {
     const clangArchitecture = architecture === "x64" ? "x86_64" : architecture;
-    const flags = `-arch ${clangArchitecture} -mmacosx-version-min=10.15`;
+    const flags = `-arch ${clangArchitecture} -mmacosx-version-min=${MACOS_DEPLOYMENT_TARGET}`;
     env.CFLAGS = [env.CFLAGS, flags].filter(Boolean).join(" ");
     env.CXXFLAGS = [env.CXXFLAGS, flags].filter(Boolean).join(" ");
     env.LINKFLAGS = [env.LINKFLAGS, flags].filter(Boolean).join(" ");

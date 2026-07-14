@@ -12,6 +12,7 @@
     "build:windows": "node scripts/build-windows.mjs",
     "build:macos-universal": "node scripts/build-universal-sidecar.mjs && tauri build --target universal-apple-darwin",
     "build:debug": "npm run native:build && tauri build --debug --no-bundle",
+    "release:macos": "node scripts/release-macos.mjs",
     "native:build": "node scripts/build-native.mjs",
     "native:test": "npm run native:build && node scripts/test-native.mjs",
     "frontend:build": "npm --workspace app run build",
