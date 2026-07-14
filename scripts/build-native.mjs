@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { installVcpkgManifest, prepareEssentia } from "./build-essentia.mjs";
@@ -23,6 +29,66 @@ const targetTriple = execFileSync("rustc", ["--print", "host-tuple"], {
   encoding: "utf8",
 }).trim();
 
+function cmakeVersion(command) {
+  try {
+    const output = execFileSync(command, ["--version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const match = output.match(/cmake version (\d+)\.(\d+)(?:\.(\d+))?/i);
+    return match ? match.slice(1, 4).map((value) => Number(value || 0)) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function compatibleCmake(version) {
+  return version && (version[0] > 3 || (version[0] === 3 && version[1] >= 24));
+}
+
+function findCmake() {
+  const executable = process.platform === "win32" ? "cmake.exe" : "cmake";
+  const toolsRoot = join(nativeRoot, ".dependencies", "tools");
+  const cached = existsSync(toolsRoot)
+    ? readdirSync(toolsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith("cmake-"))
+      .map((entry) => join(toolsRoot, entry.name, "bin", executable))
+    : [];
+  const visualStudio = process.platform === "win32"
+    ? ["Community", "BuildTools", "Professional", "Enterprise"].map((edition) =>
+      join(
+        process.env.ProgramFiles || "C:\\Program Files",
+        "Microsoft Visual Studio",
+        "2022",
+        edition,
+        "Common7",
+        "IDE",
+        "CommonExtensions",
+        "Microsoft",
+        "CMake",
+        "CMake",
+        "bin",
+        executable,
+      ))
+    : [];
+  const candidates = [
+    process.env.NKF_CMAKE,
+    process.env.CMAKE_COMMAND,
+    "cmake",
+    ...cached,
+    ...visualStudio,
+  ].filter(Boolean);
+
+  for (const candidate of new Set(candidates)) {
+    const version = cmakeVersion(candidate);
+    if (compatibleCmake(version)) {
+      console.log(`Using CMake ${version.join(".")}: ${candidate}`);
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 if (release && !vcpkgRoot && process.env.NKF_ALLOW_SYSTEM_RELEASE_DEPS !== "1") {
   console.error(
     "Release bundles require VCPKG_ROOT so FFmpeg, TagLib, FFTW, and libkeyfinder are linked into the sidecar. See DEVELOPMENT.md. Set NKF_ALLOW_SYSTEM_RELEASE_DEPS=1 only for a non-distributable local diagnostic build.",
@@ -34,11 +100,10 @@ function run(command, args) {
   execFileSync(command, args, { cwd: root, stdio: "inherit" });
 }
 
-try {
-  run("cmake", ["--version"]);
-} catch {
+const cmake = findCmake();
+if (!cmake) {
   console.error(
-    "CMake 3.24 or newer is required. See DEVELOPMENT.md for platform-specific installation steps.",
+    "CMake 3.24 or newer is required. Install it, set NKF_CMAKE to its executable, or place a portable CMake under native/.dependencies/tools/cmake-*/bin. See DEVELOPMENT.md.",
   );
   process.exit(1);
 }
@@ -79,8 +144,8 @@ if (vcpkgRoot) {
     configureArguments.push(`-DVCPKG_TARGET_TRIPLET=${process.env.VCPKG_TARGET_TRIPLET}`);
   }
 }
-run("cmake", configureArguments);
-run("cmake", ["--build", buildRoot, "--config", configuration, "--parallel"]);
+run(cmake, configureArguments);
+run(cmake, ["--build", buildRoot, "--config", configuration, "--parallel"]);
 
 const extension = process.platform === "win32" ? ".exe" : "";
 const sidecarCandidates = [

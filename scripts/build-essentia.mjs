@@ -96,7 +96,7 @@ export function prepareEssentia({ architecture = process.arch, eigenInclude } = 
   mkdirSync(pkgConfigRoot, { recursive: true });
   writeFileSync(
     join(pkgConfigRoot, "eigen3.pc"),
-    `prefix=${resolvedEigen}\nincludedir=\${prefix}\n\nName: Eigen3\nDescription: C++ template library for linear algebra\nVersion: 3.4.0\nCflags: -I\${includedir}\n`,
+    `prefix=${resolvedEigen.replaceAll("\\", "/")}\nincludedir=\${prefix}\n\nName: Eigen3\nDescription: C++ template library for linear algebra\nVersion: 3.4.0\nCflags: -I\${includedir}\n`,
   );
 
   const env = { ...process.env };
