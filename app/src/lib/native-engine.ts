@@ -1,5 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, TauriEvent, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { AppInfo, NativeEvent, PlaylistResult, ScanWarning, Settings, Track } from "./types";
 
@@ -120,12 +120,44 @@ export function listenForFileDrops(
   handler: (paths: string[]) => void,
   setHovering: (hovering: boolean) => void,
 ): Promise<UnlistenFn> {
-  return getCurrentWebview().onDragDropEvent(({ payload }) => {
-    if (payload.type === "over") setHovering(true);
-    if (payload.type === "leave") setHovering(false);
-    if (payload.type === "drop") {
-      setHovering(false);
-      handler(payload.paths);
+  const safelyUnlisten = (unlisten: UnlistenFn) => {
+    try {
+      // Tauri types this as void, but the runtime returns a promise. Handling
+      // both forms avoids an unhandled rejection during React Strict Mode's
+      // mount/unmount listener cycle.
+      void Promise.resolve(unlisten()).catch(() => undefined);
+    } catch {
+      // The webview may already have removed the listener while shutting down.
     }
-  });
+  };
+
+  return (async () => {
+    const webview = getCurrentWebview();
+    const unlisteners: UnlistenFn[] = [];
+    try {
+      unlisteners.push(await webview.listen<{ paths: string[] }>(
+        TauriEvent.DRAG_ENTER,
+        () => setHovering(true),
+      ));
+      unlisteners.push(await webview.listen(
+        TauriEvent.DRAG_OVER,
+        () => setHovering(true),
+      ));
+      unlisteners.push(await webview.listen<{ paths: string[] }>(
+        TauriEvent.DRAG_DROP,
+        ({ payload }) => {
+          setHovering(false);
+          handler(payload.paths);
+        },
+      ));
+      unlisteners.push(await webview.listen(
+        TauriEvent.DRAG_LEAVE,
+        () => setHovering(false),
+      ));
+    } catch (error) {
+      unlisteners.forEach(safelyUnlisten);
+      throw error;
+    }
+    return () => unlisteners.forEach(safelyUnlisten);
+  })();
 }
