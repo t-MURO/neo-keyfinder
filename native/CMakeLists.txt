@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
   neo_keyfinder_native
-  VERSION 0.1.0
+  VERSION 0.1.1
   DESCRIPTION "Native engine for the NeoKeyAndBpmFinder rebuild"
   LANGUAGES CXX
 )
@@ -220,7 +220,7 @@ if(NKF_BUILD_TESTS)
   add_test(NAME cli-help COMMAND keyfinder-cli --help)
   set_tests_properties(cli-help PROPERTIES PASS_REGULAR_EXPRESSION "Usage: keyfinder")
   add_test(NAME cli-version COMMAND keyfinder-cli --version)
-  set_tests_properties(cli-version PROPERTIES PASS_REGULAR_EXPRESSION "keyfinder 0.1.0")
+  set_tests_properties(cli-version PROPERTIES PASS_REGULAR_EXPRESSION "keyfinder 0.1.1")
 endif()
 
 install(TARGETS keyfinder-native keyfinder-cli RUNTIME DESTINATION bin)

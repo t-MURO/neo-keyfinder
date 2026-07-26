@@ -99,6 +99,22 @@ function findFile(directory, filename) {
   return undefined;
 }
 
+export function resolvePkgConfig(vcpkgRoot = process.env.VCPKG_ROOT) {
+  if (process.env.PKG_CONFIG_EXECUTABLE) {
+    return resolve(process.env.PKG_CONFIG_EXECUTABLE);
+  }
+  if (process.platform !== "win32" || !vcpkgRoot) return undefined;
+  return (
+    findFile(join(dependenciesRoot, "local-bin"), "pkg-config.exe") ||
+    findFile(
+      join(root, "vcpkg_installed", "x64-windows", "tools", "pkgconf"),
+      "pkgconf.exe",
+    ) ||
+    findFile(join(vcpkgRoot, "downloads", "tools", "pkgconf"), "pkgconf.exe") ||
+    findFile(join(vcpkgRoot, "downloads", "tools", "pkgconf"), "pkg-config.exe")
+  );
+}
+
 function pythonCommand() {
   for (const candidate of process.platform === "win32" ? ["python", "py"] : ["python3", "python"]) {
     try {
@@ -177,12 +193,22 @@ export function prepareEssentia({ architecture = process.arch, eigenInclude } = 
   }
 
   if (process.platform === "win32" && process.env.VCPKG_ROOT) {
-    const pkgconfRoot = join(process.env.VCPKG_ROOT, "downloads", "tools", "pkgconf");
-    const pkgconf = findFile(pkgconfRoot, "pkgconf.exe");
+    const pkgconf = resolvePkgConfig(process.env.VCPKG_ROOT);
     if (pkgconf) {
       const toolsRoot = join(cacheRoot, "tools");
       mkdirSync(toolsRoot, { recursive: true });
       copyFileSync(pkgconf, join(toolsRoot, "pkg-config.exe"));
+      for (const entry of readdirSync(dirname(pkgconf), { withFileTypes: true })) {
+        if (
+          entry.isFile() &&
+          /^pkgconf.*\.dll$/i.test(entry.name)
+        ) {
+          copyFileSync(
+            join(dirname(pkgconf), entry.name),
+            join(toolsRoot, entry.name),
+          );
+        }
+      }
       env.PATH = `${toolsRoot}${delimiter}${env.PATH}`;
     }
   }

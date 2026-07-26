@@ -1,14 +1,20 @@
 import { spawn } from "node:child_process";
 import {
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const expectedVersion = JSON.parse(
+  readFileSync(join(root, "package.json"), "utf8"),
+).version;
 const binary = process.argv[2] && resolve(process.argv[2]);
 const verifyBpm = process.argv.includes("--bpm");
 if (!binary) {
@@ -151,7 +157,11 @@ const writeClickTrack = (path, bpm = 120) => {
 let temporary;
 try {
   const health = await request("health");
-  if (health?.service !== "keyfinder-native" || health?.protocolVersion !== 1) {
+  if (
+    health?.service !== "keyfinder-native" ||
+    health?.protocolVersion !== 1 ||
+    health?.engineVersion !== expectedVersion
+  ) {
     throw new Error(`Unexpected sidecar health response: ${JSON.stringify(health)}`);
   }
 

@@ -8,7 +8,11 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { installVcpkgManifest, prepareEssentia } from "./build-essentia.mjs";
+import {
+  installVcpkgManifest,
+  prepareEssentia,
+  resolvePkgConfig,
+} from "./build-essentia.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nativeRoot = join(root, "native");
@@ -115,6 +119,12 @@ mkdirSync(binariesRoot, { recursive: true });
 if (vcpkgRoot) {
   installVcpkgManifest(vcpkgRoot, process.env.VCPKG_TARGET_TRIPLET);
 }
+const pkgConfig = resolvePkgConfig(vcpkgRoot);
+if (process.platform === "win32" && vcpkgRoot && !pkgConfig) {
+  throw new Error(
+    `vcpkg did not provide pkgconf under ${join(vcpkgRoot, "downloads", "tools")}`,
+  );
+}
 const vcpkgEigen = process.env.VCPKG_TARGET_TRIPLET
   ? join(root, "vcpkg_installed", process.env.VCPKG_TARGET_TRIPLET, "include", "eigen3")
   : undefined;
@@ -134,6 +144,9 @@ const configureArguments = [
   "-UEIGEN3_INCLUDE_DIR",
   `-DESSENTIA_ROOT=${essentiaRoot}`,
 ];
+if (pkgConfig) {
+  configureArguments.push(`-DPKG_CONFIG_EXECUTABLE=${pkgConfig}`);
+}
 if (process.platform === "darwin") {
   configureArguments.push("-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0");
 }

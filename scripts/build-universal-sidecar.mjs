@@ -2,7 +2,11 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, copyFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { installVcpkgManifest, prepareEssentia } from "./build-essentia.mjs";
+import {
+  installVcpkgManifest,
+  prepareEssentia,
+  resolvePkgConfig,
+} from "./build-essentia.mjs";
 
 if (process.platform !== "darwin") {
   throw new Error("The universal sidecar can only be built on macOS.");
@@ -14,6 +18,7 @@ if (!process.env.VCPKG_ROOT) {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nativeRoot = join(root, "native");
 const sidecars = [];
+const pkgConfig = resolvePkgConfig(process.env.VCPKG_ROOT);
 
 function run(command, args) {
   execFileSync(command, args, { cwd: root, stdio: "inherit" });
@@ -36,6 +41,7 @@ for (const architecture of ["arm64", "x64"]) {
     "-UESSENTIA_LIBRARY",
     "-UEIGEN3_INCLUDE_DIR",
     `-DESSENTIA_ROOT=${essentiaRoot}`,
+    ...(pkgConfig ? [`-DPKG_CONFIG_EXECUTABLE=${pkgConfig}`] : []),
     `-DCMAKE_TOOLCHAIN_FILE=${join(process.env.VCPKG_ROOT, "scripts", "buildsystems", "vcpkg.cmake")}`,
     `-DVCPKG_MANIFEST_DIR=${root}`,
     `-DVCPKG_OVERLAY_PORTS=${join(root, "vcpkg", "ports")}`,
