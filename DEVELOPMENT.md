@@ -198,14 +198,13 @@ export VCPKG_ROOT=/absolute/path/to/vcpkg
 npm run build:macos-universal -- --bundles dmg
 ```
 
-The resulting artifacts are below `src-tauri/target/`. CI produces a universal
-macOS DMG, a Windows x64 NSIS installer, and Linux x64 AppImage and DEB files.
+The resulting artifacts are below `src-tauri/target/`.
 
-Signing is optional. The macOS job is ready for Tauri's standard
+Signing is optional. macOS builds support Tauri's standard
 `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
 `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID` secrets. A Windows
 Authenticode `signCommand` can be supplied in a release-only Tauri config when
-a certificate service is selected; unsigned CI artifacts remain buildable.
+a certificate service is selected; unsigned artifacts remain buildable.
 
 ## JSON-Lines protocol v1
 
