@@ -106,7 +106,7 @@ Track track_from_json(const nlohmann::json& value) {
   Track track;
   track.id = value.at("id").get<std::string>();
   track.path = path_from_utf8(value.at("path").get<std::string>());
-  track.filename = value.value("filename", track.path.filename().string());
+  track.filename = value.value("filename", path_to_utf8(track.path.filename()));
   track.title = value.value("title", "");
   track.artist = value.value("artist", "");
   track.album = value.value("album", "");

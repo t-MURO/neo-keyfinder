@@ -57,6 +57,15 @@ int main() {
          "unknown methods have a typed error code");
   expect(!unknown_method.contains("result"), "errors never include result");
 
+  const auto unicode_track = keyfinder::domain::track_from_json(
+      nlohmann::json::parse(
+          R"({"id":"unicode","path":"C:\\Music\\\u97f3\u697d.mp3","filename":"\u97f3\u697d.mp3","status":"ready"})"));
+  expect(unicode_track.filename == "\xE9\x9F\xB3\xE6\xA5\xBD.mp3",
+         "track intake preserves filenames outside the Windows code page");
+  expect(keyfinder::domain::path_to_utf8(unicode_track.path).find(
+             "\xE9\x9F\xB3\xE6\xA5\xBD.mp3") != std::string::npos,
+         "track intake preserves UTF-8 paths outside the Windows code page");
+
   const auto wrong_version = process(
       R"({"version":2,"requestId":"test-3","method":"health","params":{}})");
   expect(wrong_version["error"]["code"] == "UNSUPPORTED_VERSION",
