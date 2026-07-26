@@ -1,8 +1,8 @@
 # NeoKeyAndBpmFinder
 
 NeoKeyAndBpmFinder is a modern, cross-platform rebuild of the original Qt application.
-It is intentionally isolated from the read-only reference checkout in
-`../is_KeyFinder/`.
+It is intentionally isolated from the read-only reference checkout of
+[ibsh/is_KeyFinder](https://github.com/ibsh/is_KeyFinder).
 
 The Phase 1 core workflow and Phase 2 integrations are implemented:
 
@@ -28,7 +28,7 @@ The Phase 1 core workflow and Phase 2 integrations are implemented:
   M3U/M3U8 and iTunes XML imports with replacement warnings.
 - Independent batch windows with platform-native File, Edit, Window, and Help
   menus. Analysis events are routed only to the window that owns each job.
-- A bundled native `keyfinder` CLI, an in-app AGPL/dependency About view, a
+- A bundled native `keyfinder` CLI, an in-app GPL/dependency About view, a
   GitHub published-release check, and typed translation infrastructure seeded
   with the English catalog.
 
@@ -69,6 +69,6 @@ neo-keyfinder/
 
 ## License
 
-The replacement is licensed under AGPL-3.0-or-later. Dependency licenses remain
+The replacement is licensed under GPL-3.0-only. Dependency licenses remain
 the property of their respective authors and are included by their respective
 package managers/bundlers.

@@ -801,7 +801,7 @@ function AboutDialog({ info, update, onCheck, onOpen, onClose }: {
       <section className="about-panel" role="dialog" aria-modal="true" aria-labelledby="about-title" onMouseDown={(event) => event.stopPropagation()}>
         <button className="icon-button about-close" type="button" aria-label="Close about" onClick={onClose}>×</button>
         <span className="brand-mark about-mark" aria-hidden="true"><span /></span>
-        <p className="eyebrow">AGPL open source</p>
+        <p className="eyebrow">GPL open source</p>
         <h2 id="about-title">{t("about.title")}</h2>
         <p>{t("about.description")}</p>
         <p className="about-version">Version {info?.version ?? "…"}</p>

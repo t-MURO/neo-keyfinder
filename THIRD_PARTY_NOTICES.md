@@ -1,6 +1,6 @@
 # Third-party notices
 
-NeoKeyAndBpmFinder is distributed under AGPL-3.0-or-later. It builds on open-source
+NeoKeyAndBpmFinder is distributed under GPL-3.0-only. It builds on open-source
 components whose own copyright notices and license texts remain authoritative:
 
 - libKeyFinder — GPL-3.0

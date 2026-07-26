@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A modern cross-platform NeoKeyAndBpmFinder application"
 authors = ["NeoKeyAndBpmFinder contributors"]
 edition = "2024"
-license = "AGPL-3.0-or-later"
+license = "GPL-3.0-only"
 
 [lib]
 name = "neo_keyfinder_lib"

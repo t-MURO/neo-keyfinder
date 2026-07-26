@@ -10,7 +10,7 @@ export const en = {
   "window.new": "New batch window",
   "about.title": "About NeoKeyAndBpmFinder",
   "about.description": "NeoKeyAndBpmFinder estimates musical keys and BPM for harmonic mixing.",
-  "about.license": "Licensed under AGPL-3.0-or-later.",
+  "about.license": "Licensed under GPL-3.0-only.",
   "about.dependencies": "Core dependencies: Tauri, React, libKeyFinder, Essentia, Eigen, FFmpeg, TagLib, pugixml, and nlohmann/json.",
   "updates.check": "Check for updates",
   "updates.checking": "Checking published releases…",
