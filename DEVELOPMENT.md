@@ -230,7 +230,7 @@ Every message occupies exactly one UTF-8 line. A health request is:
 Success responses contain `result` and never `error`:
 
 ```json
-{"version":1,"requestId":"health-1","result":{"service":"keyfinder-native","engineVersion":"0.1.1","protocolVersion":1}}
+{"version":1,"requestId":"health-1","result":{"service":"keyfinder-native","engineVersion":"0.1.2","protocolVersion":1}}
 ```
 
 Error responses contain `error` and never `result`:
