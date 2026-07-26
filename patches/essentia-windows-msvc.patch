@@ -1,0 +1,85 @@
+diff --git a/src/3rdparty/cephes/bessel/bessel.h b/src/3rdparty/cephes/bessel/bessel.h
+index 466cd654..0911fdc8 100644
+--- a/src/3rdparty/cephes/bessel/bessel.h
++++ b/src/3rdparty/cephes/bessel/bessel.h
+@@ -6,6 +6,10 @@
+ 
+ #include <cmath>
+ 
++#ifndef M_PI
++#define M_PI 3.14159265358979323846
++#endif
++
+ 
+ namespace cephes {
+ 
+diff --git a/src/algorithms/audioproblems/humdetector.cpp b/src/algorithms/audioproblems/humdetector.cpp
+index 421455ea..c7d6fee2 100644
+--- a/src/algorithms/audioproblems/humdetector.cpp
++++ b/src/algorithms/audioproblems/humdetector.cpp
+@@ -323,7 +323,7 @@ AlgorithmStatus HumDetector::process() {
+     peakBins[j] = salienceBins;
+     peakSaliences[j] = salienceValues;
+ 
+-    if (not salienceBins.empty())
++    if (!salienceBins.empty())
+       peakBinsNotEmpty = true;
+   }
+ 
+diff --git a/src/algorithms/standard/vectorrealtotensor.cpp b/src/algorithms/standard/vectorrealtotensor.cpp
+index 44b1918a..0550502a 100644
+--- a/src/algorithms/standard/vectorrealtotensor.cpp
++++ b/src/algorithms/standard/vectorrealtotensor.cpp
+@@ -63,7 +63,7 @@ void VectorRealToTensor::configure() {
+   _timeStamps = shape[2];
+   _frame.setAcquireSize(_timeStamps);
+ 
+-  if ((shape[0] == -1) or (shape[0] == 0)) {
++  if ((shape[0] == -1) || (shape[0] == 0)) {
+     _accumulate = true;
+   }
+ 
+@@ -218,7 +218,7 @@ AlgorithmStatus VectorRealToTensor::process() {
+     
+     // or if we have reached the end of the stream with lastBatchModel = "push"
+     // and there are not enough patches to fill a regular batch.   
+-    } else if (shouldStop() and _acc.size() < _shape[0]) {
++    } else if (shouldStop() && _acc.size() < _shape[0]) {
+       reshapeBatch = true;
+     }
+ 
+diff --git a/src/algorithms/tonal/key.cpp b/src/algorithms/tonal/key.cpp
+index 0603b3b7..adc6797e 100644
+--- a/src/algorithms/tonal/key.cpp
++++ b/src/algorithms/tonal/key.cpp
+@@ -505,7 +505,7 @@ void Key::resize(int pcpsize) {
+ // just like a cross-correlation
+ Real Key::correlation(const vector<Real>& v1, const Real mean1, const Real std1, const vector<Real>& v2, const Real mean2, const Real std2, const int shift) const
+ {
+-  if (std1 == static_cast<Real>(0.0) or std2 == static_cast<Real>(0.0))
++  if (std1 == static_cast<Real>(0.0) || std2 == static_cast<Real>(0.0))
+   {
+     return 0.0;
+   }
+diff --git a/src/essentia/roguevector.h b/src/essentia/roguevector.h
+index 000f4058..42752e28 100644
+--- a/src/essentia/roguevector.h
++++ b/src/essentia/roguevector.h
+@@ -89,13 +89,14 @@ void RogueVector<T>::setSize(size_t size) {
+ 
+ template <typename T>
+ void RogueVector<T>::setData(T* data) {
+-  this->_Myfirst() = data;
++  *reinterpret_cast<T**>(this) = data;
+ }
+ 
+ template <typename T>
+ void RogueVector<T>::setSize(size_t size) {
+-  this->_Mylast() = this->_Myfirst() + size;
+-  this->_Myend() = this->_Myfirst() + size;
++  T** start = reinterpret_cast<T**>(this);
++  *(start + 1) = *start + size;
++  *(start + 2) = *start + size;
+ }
+ 
+ #endif

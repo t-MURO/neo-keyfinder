@@ -8,6 +8,7 @@ const dependenciesRoot = join(root, "native", ".dependencies");
 const ESSENTIA_COMMIT = "b9fa6cb674ca43dfb94d28d293aeda441c6745db";
 const EIGEN_COMMIT = "3147391d946bb4b6c68edd901f2add6ac1f31f8c";
 const MACOS_DEPLOYMENT_TARGET = "11.0";
+const WINDOWS_ESSENTIA_PATCH = join(root, "patches", "essentia-windows-msvc.patch");
 
 function run(command, args, options = {}) {
   execFileSync(command, args, {
@@ -24,6 +25,30 @@ function clonePinned(repository, commit, destination) {
   }
   run("git", ["fetch", "origin", commit], { cwd: destination });
   run("git", ["checkout", "--detach", commit], { cwd: destination });
+}
+
+function commandSucceeds(command, args, options = {}) {
+  try {
+    execFileSync(command, args, {
+      cwd: options.cwd || root,
+      env: options.env || process.env,
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function applyPatch(sourceRoot, patchPath) {
+  if (commandSucceeds("git", ["apply", "--check", patchPath], { cwd: sourceRoot })) {
+    run("git", ["apply", "--whitespace=nowarn", patchPath], { cwd: sourceRoot });
+    return;
+  }
+  if (commandSucceeds("git", ["apply", "--reverse", "--check", patchPath], { cwd: sourceRoot })) {
+    return;
+  }
+  throw new Error(`Could not apply dependency patch: ${patchPath}`);
 }
 
 function findFile(directory, filename) {
@@ -77,6 +102,9 @@ export function prepareEssentia({ architecture = process.arch, eigenInclude } = 
   if (existsSync(join(installRoot, "lib", libraryName))) return installRoot;
 
   clonePinned("https://github.com/MTG/essentia.git", ESSENTIA_COMMIT, sourceRoot);
+  if (process.platform === "win32") {
+    applyPatch(sourceRoot, WINDOWS_ESSENTIA_PATCH);
+  }
 
   let resolvedEigen = eigenInclude;
   if (!resolvedEigen || !existsSync(join(resolvedEigen, "Eigen", "Core"))) {
