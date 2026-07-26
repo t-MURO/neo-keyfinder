@@ -209,7 +209,8 @@ release.
 
 Release builds compile only the Essentia dependency chain used by
 `RhythmExtractor2013` in `degara` mode, disable Neo KeyFinder's native test
-targets, and reuse the workflow's vcpkg binary cache.
+targets, build only Release variants of vcpkg libraries, and reuse separate
+vcpkg and Essentia workflow caches.
 
 The resulting artifacts are below `src-tauri/target/`.
 
