@@ -52,6 +52,12 @@ jobs:
           path: .cache/vcpkg
           key: vcpkg-windows-x64-${{ hashFiles('vcpkg.json', 'vcpkg/**') }}
 
+      - name: Restore Essentia build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: native/.dependencies
+          key: essentia-windows-x64-${{ hashFiles('scripts/build-essentia.mjs', 'native/patches/**') }}
+
       - name: Bootstrap vcpkg
         shell: pwsh
         run: |
@@ -114,6 +120,12 @@ jobs:
         with:
           path: .cache/vcpkg
           key: vcpkg-macos-universal-${{ hashFiles('vcpkg.json', 'vcpkg/**') }}
+
+      - name: Restore Essentia build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: native/.dependencies
+          key: essentia-macos-universal-${{ hashFiles('scripts/build-essentia.mjs', 'native/patches/**') }}
 
       - name: Bootstrap vcpkg
         shell: bash
