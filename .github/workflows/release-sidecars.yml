@@ -1,0 +1,192 @@
+name: Release native sidecars
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing v-prefixed tag to publish
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: native-sidecars-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.cache/vcpkg,readwrite"
+  VCPKG_COMMIT: f87344cac03158cbf1467264565f1fd36b382a24
+
+jobs:
+  windows:
+    name: Windows x64 sidecar
+    runs-on: windows-2022
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out Neo KeyFinder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .cache/vcpkg
+          key: vcpkg-windows-x64-${{ hashFiles('vcpkg.json', 'vcpkg/**') }}
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "${{ github.workspace }}\.cache\vcpkg" | Out-Null
+          git clone https://github.com/microsoft/vcpkg.git "$env:VCPKG_ROOT"
+          git -C "$env:VCPKG_ROOT" checkout "$env:VCPKG_COMMIT"
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Build Windows sidecar
+        shell: pwsh
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+          CMAKE_BUILD_PARALLEL_LEVEL: "4"
+        run: npm run native:build:windows-sidecar
+
+      - name: Verify Windows sidecar
+        shell: pwsh
+        run: |
+          node scripts/verify-release-sidecar.mjs `
+            src-tauri/binaries/keyfinder-native-x86_64-pc-windows-msvc.exe `
+            --bpm
+
+      - name: Upload Windows sidecar
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neo-keyfinder-windows-x64
+          path: src-tauri/binaries/keyfinder-native-x86_64-pc-windows-msvc.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  macos:
+    name: macOS universal sidecars
+    runs-on: macos-14
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out Neo KeyFinder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .cache/vcpkg
+          key: vcpkg-macos-universal-${{ hashFiles('vcpkg.json', 'vcpkg/**') }}
+
+      - name: Bootstrap vcpkg
+        shell: bash
+        run: |
+          mkdir -p "${{ github.workspace }}/.cache/vcpkg"
+          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          git -C "$VCPKG_ROOT" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Build macOS sidecars
+        shell: bash
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+          CMAKE_BUILD_PARALLEL_LEVEL: "4"
+        run: npm run native:build:macos-sidecars
+
+      - name: Verify macOS universal sidecar
+        shell: bash
+        run: |
+          node scripts/verify-release-sidecar.mjs \
+            src-tauri/binaries/keyfinder-native-universal-apple-darwin \
+            --bpm
+
+      - name: Upload macOS sidecars
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: neo-keyfinder-macos
+          path: |
+            src-tauri/binaries/keyfinder-native-aarch64-apple-darwin
+            src-tauri/binaries/keyfinder-native-x86_64-apple-darwin
+            src-tauri/binaries/keyfinder-native-universal-apple-darwin
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish checksummed sidecars
+    needs:
+      - windows
+      - macos
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download built sidecars
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: neo-keyfinder-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create checksums
+        shell: bash
+        working-directory: release-assets
+        run: sha256sum keyfinder-native-* > SHA256SUMS
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --generate-notes \
+              --title "Neo KeyFinder $RELEASE_TAG"
+          fi

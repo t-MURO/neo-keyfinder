@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nativeRoot = join(root, "native");
+const sidecarOnly = process.argv.includes("--sidecar-only");
 
 if (process.platform !== "win32") {
   console.error("build:windows must be run on Windows.");
@@ -188,7 +189,13 @@ setEnvironment("PKG_CONFIG_DONT_DEFINE_PREFIX", "1");
 
 const result = spawnSync(
   "cmd.exe",
-  ["/d", "/c", "npm run build -- --bundles nsis"],
+  [
+    "/d",
+    "/c",
+    sidecarOnly
+      ? "npm run native:build -- --release --sidecar-only"
+      : "npm run build -- --bundles nsis",
+  ],
   { cwd: root, env, stdio: "inherit", windowsVerbatimArguments: true },
 );
 if (result.error) console.error(`Could not start the Windows build: ${result.error.message}`);

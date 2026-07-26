@@ -14,6 +14,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nativeRoot = join(root, "native");
 const binariesRoot = join(root, "src-tauri", "binaries");
 const release = process.argv.includes("--release");
+const sidecarOnly = process.argv.includes("--sidecar-only");
 const configuration = release ? "Release" : "Debug";
 const requestedVcpkgRoot = process.env.VCPKG_ROOT;
 const vcpkgRoot = requestedVcpkgRoot && existsSync(
@@ -127,7 +128,7 @@ const configureArguments = [
   "-B",
   buildRoot,
   `-DCMAKE_BUILD_TYPE=${configuration}`,
-  "-DNKF_BUILD_TESTS=ON",
+  `-DNKF_BUILD_TESTS=${release ? "OFF" : "ON"}`,
   "-UESSENTIA_INCLUDE_DIR",
   "-UESSENTIA_LIBRARY",
   "-UEIGEN3_INCLUDE_DIR",
@@ -148,7 +149,10 @@ if (vcpkgRoot) {
   }
 }
 run(cmake, configureArguments);
-run(cmake, ["--build", buildRoot, "--config", configuration, "--parallel"]);
+const buildArguments = ["--build", buildRoot, "--config", configuration];
+if (sidecarOnly) buildArguments.push("--target", "keyfinder-native");
+buildArguments.push("--parallel");
+run(cmake, buildArguments);
 
 const extension = process.platform === "win32" ? ".exe" : "";
 const sidecarCandidates = [
@@ -162,8 +166,12 @@ const cliCandidates = [
 const source = sidecarCandidates.find(existsSync);
 const cliSource = cliCandidates.find(existsSync);
 
-if (!source || !cliSource) {
-  throw new Error(`Native engine and CLI were not produced in ${buildRoot}`);
+if (!source || (!sidecarOnly && !cliSource)) {
+  throw new Error(
+    sidecarOnly
+      ? `Native engine was not produced in ${buildRoot}`
+      : `Native engine and CLI were not produced in ${buildRoot}`,
+  );
 }
 
 const destination = join(
@@ -175,7 +183,9 @@ copyFileSync(source, destination);
 if (process.platform !== "win32") chmodSync(destination, 0o755);
 console.log(`Prepared sidecar: ${destination}`);
 
-const cliDestination = join(binariesRoot, `keyfinder-${targetTriple}${extension}`);
-copyFileSync(cliSource, cliDestination);
-if (process.platform !== "win32") chmodSync(cliDestination, 0o755);
-console.log(`Prepared CLI: ${cliDestination}`);
+if (!sidecarOnly) {
+  const cliDestination = join(binariesRoot, `keyfinder-${targetTriple}${extension}`);
+  copyFileSync(cliSource, cliDestination);
+  if (process.platform !== "win32") chmodSync(cliDestination, 0o755);
+  console.log(`Prepared CLI: ${cliDestination}`);
+}

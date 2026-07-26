@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { installVcpkgManifest, prepareEssentia } from "./build-essentia.mjs";
@@ -14,7 +14,6 @@ if (!process.env.VCPKG_ROOT) {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nativeRoot = join(root, "native");
 const sidecars = [];
-const clis = [];
 
 function run(command, args) {
   execFileSync(command, args, { cwd: root, stdio: "inherit" });
@@ -45,19 +44,26 @@ for (const architecture of ["arm64", "x64"]) {
     `-DCMAKE_OSX_ARCHITECTURES=${architecture === "x64" ? "x86_64" : "arm64"}`,
     "-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0",
   ]);
-  run("cmake", ["--build", buildRoot, "--config", "Release", "--target", "keyfinder-native", "keyfinder-cli", "--parallel"]);
-  sidecars.push(join(buildRoot, "keyfinder-native"));
-  clis.push(join(buildRoot, "keyfinder"));
+  run("cmake", ["--build", buildRoot, "--config", "Release", "--target", "keyfinder-native", "--parallel"]);
+  sidecars.push({
+    architecture,
+    path: join(buildRoot, "keyfinder-native"),
+  });
 }
 
 const binaries = join(root, "src-tauri", "binaries");
 mkdirSync(binaries, { recursive: true });
+for (const sidecar of sidecars) {
+  const triple = sidecar.architecture === "arm64"
+    ? "aarch64-apple-darwin"
+    : "x86_64-apple-darwin";
+  const architectureDestination = join(binaries, `keyfinder-native-${triple}`);
+  copyFileSync(sidecar.path, architectureDestination);
+  chmodSync(architectureDestination, 0o755);
+  console.log(`Prepared ${sidecar.architecture} sidecar: ${architectureDestination}`);
+}
+
 const destination = join(binaries, "keyfinder-native-universal-apple-darwin");
-run("lipo", ["-create", ...sidecars, "-output", destination]);
+run("lipo", ["-create", ...sidecars.map((sidecar) => sidecar.path), "-output", destination]);
 chmodSync(destination, 0o755);
 console.log(`Prepared universal sidecar: ${destination}`);
-
-const cliDestination = join(binaries, "keyfinder-universal-apple-darwin");
-run("lipo", ["-create", ...clis, "-output", cliDestination]);
-chmodSync(cliDestination, 0o755);
-console.log(`Prepared universal CLI: ${cliDestination}`);

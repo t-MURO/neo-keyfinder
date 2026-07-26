@@ -1,6 +1,8 @@
 #include "keyfinder/bpm_analyzer.hpp"
 
 #include <cmath>
+#include <cstdlib>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -50,9 +52,17 @@ std::optional<double> detect_bpm(const std::vector<float>& mono_samples) {
 
     if (!std::isfinite(bpm) || bpm <= 0.0F) return std::nullopt;
     return std::round(static_cast<double>(bpm) * 10.0) / 10.0;
-  } catch (...) {
+  } catch (const std::exception& error) {
     // BPM is an additional descriptor. A rhythm failure must not discard a
     // successfully detected musical key.
+    if (std::getenv("NKF_BPM_DIAGNOSTICS")) {
+      std::cerr << "Essentia BPM detection failed: " << error.what() << '\n';
+    }
+    return std::nullopt;
+  } catch (...) {
+    if (std::getenv("NKF_BPM_DIAGNOSTICS")) {
+      std::cerr << "Essentia BPM detection failed with an unknown error\n";
+    }
     return std::nullopt;
   }
 #else

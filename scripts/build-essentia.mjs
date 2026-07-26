@@ -9,6 +9,39 @@ const ESSENTIA_COMMIT = "b9fa6cb674ca43dfb94d28d293aeda441c6745db";
 const EIGEN_COMMIT = "3147391d946bb4b6c68edd901f2add6ac1f31f8c";
 const MACOS_DEPLOYMENT_TARGET = "11.0";
 const WINDOWS_ESSENTIA_PATCH = join(root, "patches", "essentia-windows-msvc.patch");
+// Neo KeyFinder uses RhythmExtractor2013 with method="degara". Keep this list
+// aligned with that algorithm's factory-created dependency chain in the pinned
+// Essentia revision. The profile name is part of the cache key so changing the
+// list can never reuse an incompatible library.
+const ESSENTIA_ALGORITHM_PROFILE = "rhythm-degara-v3";
+const ESSENTIA_ALGORITHMS = [
+  "RhythmExtractor2013",
+  "BeatTrackerDegara",
+  // RhythmExtractor2013 first constructs its default "multifeature" network
+  // before Neo configures it for "degara", so those factory registrations
+  // must also be present even though they are not used for analysis.
+  "BeatTrackerMultiFeature",
+  "OnsetDetectionGlobal",
+  "TempoTapMaxAgreement",
+  "Scale",
+  "NoiseAdder",
+  "Spectrum",
+  "MovingAverage",
+  "ERBBands",
+  "AutoCorrelation",
+  "HFC",
+  "Flux",
+  "MelBands",
+  "IIR",
+  "Magnitude",
+  "TriangularBands",
+  "FrameCutter",
+  "Windowing",
+  "FFT",
+  "CartesianToPolar",
+  "OnsetDetection",
+  "TempoTapDegara",
+];
 
 function run(command, args, options = {}) {
   execFileSync(command, args, {
@@ -94,7 +127,12 @@ export function prepareEssentia({ architecture = process.arch, eigenInclude } = 
   if (process.env.ESSENTIA_ROOT) return resolve(process.env.ESSENTIA_ROOT);
 
   const platformVariant = process.platform === "darwin" ? `darwin-macos${MACOS_DEPLOYMENT_TARGET}` : process.platform;
-  const cacheKey = `${platformVariant}-${architecture}-${ESSENTIA_COMMIT.slice(0, 10)}`;
+  const cacheKey = [
+    platformVariant,
+    architecture,
+    ESSENTIA_COMMIT.slice(0, 10),
+    ESSENTIA_ALGORITHM_PROFILE,
+  ].join("-");
   const cacheRoot = join(dependenciesRoot, cacheKey);
   const sourceRoot = join(cacheRoot, "source");
   const installRoot = join(cacheRoot, "install");
@@ -157,6 +195,7 @@ export function prepareEssentia({ architecture = process.arch, eigenInclude } = 
     "--build-static",
     "--lightweight=",
     "--fft=KISS",
+    `--include-algos=${ESSENTIA_ALGORITHMS.join(",")}`,
     `--pkg-config-path=${pkgConfigRoot}`,
   ], { cwd: sourceRoot, env });
   run(python, ["waf", `-j${process.env.CMAKE_BUILD_PARALLEL_LEVEL || "4"}`], {

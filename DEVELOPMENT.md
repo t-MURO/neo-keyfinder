@@ -198,6 +198,19 @@ export VCPKG_ROOT=/absolute/path/to/vcpkg
 npm run build:macos-universal -- --bundles dmg
 ```
 
+### Native sidecar releases
+
+Pushing a `v*` tag runs `.github/workflows/release-sidecars.yml`. It builds the
+Windows x64, macOS arm64, macOS x64, and macOS universal sidecars once, verifies
+their protocol health response, and attaches them to the GitHub release with a
+`SHA256SUMS` manifest. Downstream applications should pin a release tag and
+verify that manifest instead of rebuilding Essentia in every application
+release.
+
+Release builds compile only the Essentia dependency chain used by
+`RhythmExtractor2013` in `degara` mode, disable Neo KeyFinder's native test
+targets, and reuse the workflow's vcpkg binary cache.
+
 The resulting artifacts are below `src-tauri/target/`.
 
 Signing is optional. macOS builds support Tauri's standard
